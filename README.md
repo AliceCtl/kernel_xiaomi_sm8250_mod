@@ -1,3 +1,4 @@
+[☕Buy me a coffee](https://ko-fi.com/strawing)
 # Notice / 注意
 For SukiSU users: Please use [SukiSU Manager 3.2.0](https://github.com/SukiSU-Ultra/SukiSU-Ultra/releases/tag/v3.2.0), 4.0 and above are not supported yet of the SukiSU version in this kernel.
 
