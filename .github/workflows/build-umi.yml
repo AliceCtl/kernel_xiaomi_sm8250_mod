@@ -141,6 +141,11 @@ jobs:
             }
           done
 
+          if grep -Fq 'ksu_handle_devpts' drivers/tty/pty.c; then
+            echo "deprecated ksu_handle_devpts hook remains in drivers/tty/pty.c" >&2
+            exit 1
+          fi
+
       - name: Build AOSP and MIUI SukiSU-SUSFS packages
         id: kernel
         run: |
