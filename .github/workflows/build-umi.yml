@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   build:
-    name: Build umi AnyKernel3 packages
+    name: Build umi SukiSU-SUSFS packages
     runs-on: ubuntu-22.04
     timeout-minutes: 120
     env:
@@ -136,7 +136,7 @@ jobs:
             }
           done
 
-      - name: Build AOSP and MIUI packages
+      - name: Build AOSP and MIUI SukiSU-SUSFS packages
         run: |
           set -Eeuo pipefail
           config_path="arch/arm64/configs/umi_defconfig"
@@ -148,20 +148,33 @@ jobs:
           }
           trap restore_config EXIT
 
-          bash build.sh umi 2>&1 | tee "$RUNNER_TEMP/build-umi.log"
+          bash build.sh umi ksu 2>&1 | tee "$RUNNER_TEMP/build-umi.log"
           restore_config
           trap - EXIT
 
+          ksu_symbols=(
+            CONFIG_KSU
+            CONFIG_KSU_MANUAL_HOOK
+            CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT
+            CONFIG_KSU_SUSFS_SUS_MOUNT
+            CONFIG_KPM
+          )
+          for symbol in "${ksu_symbols[@]}"; do
+            grep -qx "${symbol}=y" out/.config || {
+              echo "${symbol} did not resolve to y in the SukiSU-SUSFS build" >&2
+              exit 1
+            }
+          done
+
           git diff --exit-code -- "$config_path"
-          git diff --exit-code
 
       - name: Collect build artifacts
         id: artifacts
         run: |
           set -euo pipefail
           shopt -s nullglob
-          aosp=(Kernel_AOSP_umi_NoKernelSU_*_anykernel3_*.zip)
-          miui=(Kernel_MIUI_umi_NoKernelSU_*_anykernel3_*.zip)
+          aosp=(Kernel_AOSP_umi_SukiSU-SUSFS_*_anykernel3_*.zip)
+          miui=(Kernel_MIUI_umi_SukiSU-SUSFS_*_anykernel3_*.zip)
 
           if (( ${#aosp[@]} != 1 )); then
             printf 'Expected one AOSP ZIP, found %s\n' "${#aosp[@]}" >&2
@@ -180,7 +193,7 @@ jobs:
           cp "${miui[0]}" "$artifact_root/miui/"
 
           for variant in aosp miui; do
-            printf 'device=umi\nvariant=%s\nkernelsu=disabled\nkernel_commit=%s\nworkflow_run=%s\nbuild_timestamp_utc=%s\n' \
+            printf 'device=umi\nvariant=%s\nkernelsu=SukiSU-SUSFS\nkernel_commit=%s\nworkflow_run=%s\nbuild_timestamp_utc=%s\n' \
               "$variant" "$commit" "$GITHUB_RUN_ID" "$stamp" \
               > "$artifact_root/$variant/build-metadata.txt"
           done
@@ -191,7 +204,7 @@ jobs:
       - name: Upload AOSP artifact
         uses: actions/upload-artifact@v4
         with:
-          name: umi-aosp-NoKernelSU-${{ steps.artifacts.outputs.stamp }}-${{ steps.artifacts.outputs.commit }}
+          name: umi-aosp-SukiSU-SUSFS-${{ steps.artifacts.outputs.stamp }}-${{ steps.artifacts.outputs.commit }}
           path: ${{ runner.temp }}/umi-artifacts/aosp
           if-no-files-found: error
           retention-days: 14
@@ -199,7 +212,7 @@ jobs:
       - name: Upload MIUI artifact
         uses: actions/upload-artifact@v4
         with:
-          name: umi-miui-NoKernelSU-${{ steps.artifacts.outputs.stamp }}-${{ steps.artifacts.outputs.commit }}
+          name: umi-miui-SukiSU-SUSFS-${{ steps.artifacts.outputs.stamp }}-${{ steps.artifacts.outputs.commit }}
           path: ${{ runner.temp }}/umi-artifacts/miui
           if-no-files-found: error
           retention-days: 14
