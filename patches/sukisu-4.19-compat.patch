@@ -29,6 +29,29 @@ diff --git a/kernel/runtime/ksud.c b/kernel/runtime/ksud.c
              apply_kernelsu_rules();
              cache_sid();
              setup_ksu_cred();
+diff --git a/kernel/policy/allowlist.c b/kernel/policy/allowlist.c
+--- a/kernel/policy/allowlist.c
++++ b/kernel/policy/allowlist.c
+@@ -448,6 +448,6 @@ static void migrate_profile(u32 version, struct app_profile *profile)
+             }
+         }
+-        fallthrough;
++        /* fall through */
+     case 3:
+         if (profile->allow_su) {
+             profile->rp_config.profile.flags = FLAG_KSU_NO_NEW_PRIVS;
+diff --git a/kernel/sulog/event.c b/kernel/sulog/event.c
+--- a/kernel/sulog/event.c
++++ b/kernel/sulog/event.c
+@@ -142,7 +142,7 @@ static __u32 ksu_sulog_flatten_argv(struct user_arg_ptr *argv_user, char *dst, __u32 dst_len)
+         if (IS_ERR(arg_user))
+             return ksu_sulog_copy_empty_string(dst);
+
+         copied =
+-            strncpy_from_user_nofault(arg, (const void __user *)untagged_addr((unsigned long)arg_user), sizeof(arg));
++            ksu_strncpy_from_user_nofault(arg, (const void __user *)untagged_addr((unsigned long)arg_user), sizeof(arg));
+         if (copied <= 0)
+             return ksu_sulog_copy_empty_string(dst);
 diff --git a/kernel/kpm/kpm.c b/kernel/kpm/kpm.c
 --- a/kernel/kpm/kpm.c
 +++ b/kernel/kpm/kpm.c

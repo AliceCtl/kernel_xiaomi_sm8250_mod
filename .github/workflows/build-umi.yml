@@ -184,6 +184,19 @@ jobs:
             exit 1
           fi
 
+          allowlist_source="KernelSU/kernel/policy/allowlist.c"
+          sulog_source="KernelSU/kernel/sulog/event.c"
+          grep -Fq '/* fall through */' "$allowlist_source"
+          if grep -Eq '(^|[^[:alnum:]_])fallthrough[[:space:]]*;' "$allowlist_source"; then
+            echo "unadapted fallthrough marker remains in ${allowlist_source}" >&2
+            exit 1
+          fi
+          grep -Fq 'ksu_strncpy_from_user_nofault(' "$sulog_source"
+          if grep -Eq '(^|[^[:alnum:]_])strncpy_from_user_nofault[[:space:]]*\(' "$sulog_source"; then
+            echo "unadapted strncpy_from_user_nofault call remains in ${sulog_source}" >&2
+            exit 1
+          fi
+
           ksu_symbols=(
             CONFIG_KSU
             CONFIG_KSU_SUSFS
