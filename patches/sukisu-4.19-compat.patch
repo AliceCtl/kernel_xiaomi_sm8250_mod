@@ -29,3 +29,46 @@ diff --git a/kernel/runtime/ksud.c b/kernel/runtime/ksud.c
              apply_kernelsu_rules();
              cache_sid();
              setup_ksu_cred();
+diff --git a/kernel/kpm/kpm.c b/kernel/kpm/kpm.c
+--- a/kernel/kpm/kpm.c
++++ b/kernel/kpm/kpm.c
+@@ -135,2 +135,2 @@ noinline int sukisu_handle_kpm(unsigned long control_code, unsigned long arg1,
+-        if (!access_ok(arg1, 255)) {
++        if (!ksu_access_ok(arg1, 255)) {
+             goto invalid_arg;
+@@ -142,2 +142,2 @@ noinline int sukisu_handle_kpm(unsigned long control_code, unsigned long arg1,
+-            if (!access_ok(arg2, 255)) {
++            if (!ksu_access_ok(arg2, 255)) {
+                 goto invalid_arg;
+@@ -161,2 +161,2 @@ noinline int sukisu_handle_kpm(unsigned long control_code, unsigned long arg1,
+-        if (!access_ok(arg1, sizeof(kernel_name_buffer))) {
++        if (!ksu_access_ok(arg1, sizeof(kernel_name_buffer))) {
+             goto invalid_arg;
+@@ -181,2 +181,2 @@ noinline int sukisu_handle_kpm(unsigned long control_code, unsigned long arg1,
+-        if (!access_ok(arg1, sizeof(kernel_name_buffer))) {
++        if (!ksu_access_ok(arg1, sizeof(kernel_name_buffer))) {
+             goto invalid_arg;
+@@ -192,2 +192,2 @@ noinline int sukisu_handle_kpm(unsigned long control_code, unsigned long arg1,
+-        if (!access_ok(arg2, size)) {
++        if (!ksu_access_ok(arg2, size)) {
+             goto invalid_arg;
+@@ -207,2 +207,2 @@ noinline int sukisu_handle_kpm(unsigned long control_code, unsigned long arg1,
+-        if (!access_ok(arg2, len)) {
++        if (!ksu_access_ok(arg2, len)) {
+             goto invalid_arg;
+@@ -225,2 +225,2 @@ noinline int sukisu_handle_kpm(unsigned long control_code, unsigned long arg1,
+-        if (!access_ok(arg1, sizeof(kpm_name))) {
++        if (!ksu_access_ok(arg1, sizeof(kpm_name))) {
+             goto invalid_arg;
+@@ -229,2 +229,2 @@ noinline int sukisu_handle_kpm(unsigned long control_code, unsigned long arg1,
+-        if (!access_ok(arg2, sizeof(kpm_args))) {
++        if (!ksu_access_ok(arg2, sizeof(kpm_args))) {
+             goto invalid_arg;
+@@ -289,2 +289,2 @@ int do_kpm(void __user *arg)
+-    if (!access_ok(cmd.control_code, sizeof(int))) {
++    if (!ksu_access_ok(cmd.control_code, sizeof(int))) {
+         pr_err("kpm: invalid control_code pointer %px\n",
+@@ -295,2 +295,2 @@ int do_kpm(void __user *arg)
+-    if (!access_ok(cmd.result_code, sizeof(int))) {
++    if (!ksu_access_ok(cmd.result_code, sizeof(int))) {
+         pr_err("kpm: invalid result_code pointer %px\n",

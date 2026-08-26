@@ -177,6 +177,13 @@ jobs:
             "const char *type = \"${SUKISU_EXPECTED_HOOK}\";" \
             "$dispatch_source"
 
+          kpm_source="KernelSU/kernel/kpm/kpm.c"
+          grep -Fq 'ksu_access_ok(' "$kpm_source"
+          if grep -Eq '(^|[^[:alnum:]_])access_ok[[:space:]]*\(' "$kpm_source"; then
+            echo "unadapted two-argument access_ok call remains in ${kpm_source}" >&2
+            exit 1
+          fi
+
           ksu_symbols=(
             CONFIG_KSU
             CONFIG_KSU_SUSFS
