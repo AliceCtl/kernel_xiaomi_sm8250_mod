@@ -101,6 +101,10 @@ patches-*
 patches
 series
 
+# Source patches consumed by the reproducible CI build.
+!patches/
+!patches/sukisu-4.19-compat.patch
+
 # cscope files
 cscope.*
 ncscope.*

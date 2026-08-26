@@ -20,6 +20,11 @@ jobs:
     timeout-minutes: 120
     env:
       TZ: UTC
+      SUKISU_CORE_COMMIT: 5a2bb7e5813002ccaabe02fa864cfb2dde6b5109
+      SUKISU_EXPECTED_UAPI: "2"
+      SUKISU_MIN_MANAGER_VERSION: "32513"
+      SUKISU_EXPECTED_HOOK: SUSFS Inline Hook
+      SUSFS_EXPECTED_VERSION: v2.2.0
     defaults:
       run:
         shell: bash
@@ -137,6 +142,7 @@ jobs:
           done
 
       - name: Build AOSP and MIUI SukiSU-SUSFS packages
+        id: kernel
         run: |
           set -Eeuo pipefail
           config_path="arch/arm64/configs/umi_defconfig"
@@ -152,11 +158,32 @@ jobs:
           restore_config
           trap - EXIT
 
+          actual_sukisu_commit="$(git -C KernelSU rev-parse HEAD)"
+          if [[ "$actual_sukisu_commit" != "$SUKISU_CORE_COMMIT" ]]; then
+            echo "SukiSU checkout mismatch: expected $SUKISU_CORE_COMMIT, got $actual_sukisu_commit" >&2
+            exit 1
+          fi
+
+          git -C KernelSU apply --reverse --check \
+            "$GITHUB_WORKSPACE/patches/sukisu-4.19-compat.patch"
+
+          uapi_header="KernelSU/kernel/include/uapi/supercall.h"
+          dispatch_source="KernelSU/kernel/supercall/dispatch.c"
+          grep -Fqx \
+            "DECLARE(__u32, KERNEL_SU_UAPI_VERSION, ${SUKISU_EXPECTED_UAPI});" \
+            "$uapi_header"
+          grep -Fq 'cmd.uapi_version = KERNEL_SU_UAPI_VERSION;' "$dispatch_source"
+          grep -Fq \
+            "const char *type = \"${SUKISU_EXPECTED_HOOK}\";" \
+            "$dispatch_source"
+
           ksu_symbols=(
             CONFIG_KSU
-            CONFIG_KSU_MANUAL_HOOK
-            CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT
+            CONFIG_KSU_SUSFS
             CONFIG_KSU_SUSFS_SUS_MOUNT
+            CONFIG_KSU_SUSFS_SUS_KSTAT
+            CONFIG_KSU_SUSFS_SPOOF_UNAME
+            CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
             CONFIG_KPM
           )
           for symbol in "${ksu_symbols[@]}"; do
@@ -165,6 +192,30 @@ jobs:
               exit 1
             }
           done
+
+          grep -Fqx \
+            "#define SUSFS_VERSION \"${SUSFS_EXPECTED_VERSION}\"" \
+            include/linux/susfs.h
+          grep -Fq -- '-- SukiSU-Ultra: using SUSFS_INLINE_HOOK' \
+            "$RUNNER_TEMP/build-umi.log"
+          grep -Fq -- '-- KPM is enabled' "$RUNNER_TEMP/build-umi.log"
+          grep -Fq -- "-- SUSFS_VERSION: ${SUSFS_EXPECTED_VERSION}" \
+            "$RUNNER_TEMP/build-umi.log"
+
+          sukisu_version="$(sed -nE \
+            's/.*-- SukiSU-Ultra version[^:]*: ([0-9]+).*/\1/p' \
+            "$RUNNER_TEMP/build-umi.log" | tail -n 1)"
+          if [[ ! "$sukisu_version" =~ ^[0-9]+$ ]] || \
+             (( sukisu_version < SUKISU_MIN_MANAGER_VERSION )); then
+            echo "SukiSU version ${sukisu_version:-unknown} is below manager minimum ${SUKISU_MIN_MANAGER_VERSION}" >&2
+            exit 1
+          fi
+
+          echo "sukisu_commit=$actual_sukisu_commit" >> "$GITHUB_OUTPUT"
+          echo "sukisu_uapi=$SUKISU_EXPECTED_UAPI" >> "$GITHUB_OUTPUT"
+          echo "sukisu_version=$sukisu_version" >> "$GITHUB_OUTPUT"
+          echo "susfs_version=$SUSFS_EXPECTED_VERSION" >> "$GITHUB_OUTPUT"
+          echo "hook_type=$SUKISU_EXPECTED_HOOK" >> "$GITHUB_OUTPUT"
 
           git diff --exit-code -- "$config_path"
 
@@ -193,8 +244,16 @@ jobs:
           cp "${miui[0]}" "$artifact_root/miui/"
 
           for variant in aosp miui; do
-            printf 'device=umi\nvariant=%s\nkernelsu=SukiSU-SUSFS\nkernel_commit=%s\nworkflow_run=%s\nbuild_timestamp_utc=%s\n' \
-              "$variant" "$commit" "$GITHUB_RUN_ID" "$stamp" \
+            printf 'device=umi\nvariant=%s\nkernelsu=SukiSU-SUSFS\nkernel_commit=%s\nsukisu_commit=%s\nsukisu_version=%s\nsukisu_uapi=%s\nhook_type=%s\nsusfs_version=%s\nkpm=enabled\nworkflow_run=%s\nbuild_timestamp_utc=%s\n' \
+              "$variant" \
+              "$commit" \
+              "${{ steps.kernel.outputs.sukisu_commit }}" \
+              "${{ steps.kernel.outputs.sukisu_version }}" \
+              "${{ steps.kernel.outputs.sukisu_uapi }}" \
+              "${{ steps.kernel.outputs.hook_type }}" \
+              "${{ steps.kernel.outputs.susfs_version }}" \
+              "$GITHUB_RUN_ID" \
+              "$stamp" \
               > "$artifact_root/$variant/build-metadata.txt"
           done
 

@@ -1,8 +1,8 @@
 [☕Buy me a coffee](https://ko-fi.com/strawing)
 # Notice / 注意
-For SukiSU users: Please use [SukiSU Manager 3.2.0](https://github.com/SukiSU-Ultra/SukiSU-Ultra/releases/tag/v3.2.0), 4.0 and above are not supported yet of the SukiSU version in this kernel.
+The UMI SukiSU build pins the official `builtin` core at `5a2bb7e5813002ccaabe02fa864cfb2dde6b5109`, enables UAPI v2, SUSFS and KPM, and applies the included Linux 4.19 compatibility patch. The generated artifact metadata records the exact core version and hook type.
 
-SukiSU用户请使用 [SukiSU 管理器 3.2.0 版本](https://github.com/SukiSU-Ultra/SukiSU-Ultra/releases/tag/v3.2.0)，4.0及以上版本不支持该内核中的SukiSU版本。
+UMI 的 SukiSU 构建已固定到官方 `builtin` 核心 `5a2bb7e5813002ccaabe02fa864cfb2dde6b5109`，启用 UAPI v2、SUSFS 和 KPM，并应用仓库内的 Linux 4.19 兼容补丁。构建产物元数据会记录实际核心版本和 Hook 类型。
 
 # About this repo
 
@@ -151,5 +151,4 @@ Release里的编译好的内核成品由`android15-lineage22-mod`分支编译，
     ```
 
     And also, here is a `buildall.sh` can build for all supported models at once.
-
 

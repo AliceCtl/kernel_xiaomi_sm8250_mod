@@ -24,6 +24,9 @@
 #include <linux/filter.h>
 #include <linux/ftrace.h>
 #include <linux/compiler.h>
+#ifdef CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
+#include <linux/susfs_def.h>
+#endif // #ifdef CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
 
 /*
  * These will be re-linked against their real values
@@ -158,26 +161,6 @@ static unsigned long kallsyms_sym_address(int idx)
 	return kallsyms_relative_base - 1 - kallsyms_offsets[idx];
 }
 
-#if defined(CONFIG_CFI_CLANG) && defined(CONFIG_THINLTO)
-/*
- * LLVM appends a hash to static function names when ThinLTO and CFI are
- * both enabled, which causes confusion and potentially breaks user space
- * tools, so we will strip the postfix from expanded symbol names.
- */
-static inline char *cleanup_symbol_name(char *s)
-{
-	char *res = NULL;
-
-	res = strrchr(s, '$');
-	if (res)
-		*res = '\0';
-
-	return res;
-}
-#else
-static inline char *cleanup_symbol_name(char *s) { return NULL; }
-#endif
-
 /* Lookup the address for this symbol. Returns 0 if not found. */
 unsigned long kallsyms_lookup_name(const char *name)
 {
@@ -189,9 +172,6 @@ unsigned long kallsyms_lookup_name(const char *name)
 		off = kallsyms_expand_symbol(off, namebuf, ARRAY_SIZE(namebuf));
 
 		if (strcmp(namebuf, name) == 0)
-			return kallsyms_sym_address(i);
-
-		if (cleanup_symbol_name(namebuf) && strcmp(namebuf, name) == 0)
 			return kallsyms_sym_address(i);
 	}
 	return module_kallsyms_lookup_name(name);
@@ -290,6 +270,30 @@ int kallsyms_lookup_size_offset(unsigned long addr, unsigned long *symbolsize,
 	return !!module_address_lookup(addr, symbolsize, offset, NULL, namebuf) ||
 	       !!__bpf_address_lookup(addr, symbolsize, offset, namebuf);
 }
+
+#ifdef CONFIG_CFI_CLANG
+/*
+ * LLVM appends .cfi to function names when CONFIG_CFI_CLANG is enabled,
+ * which causes confusion and potentially breaks user space tools, so we
+ * will strip the postfix from expanded symbol names.
+ */
+static inline void cleanup_symbol_name(char *s)
+{
+	char *res;
+
+#ifdef CONFIG_THINLTO
+	/* Filter out hashes from static functions */
+	res = strrchr(s, '$');
+	if (res)
+		*res = '\0';
+#endif
+	res = strrchr(s, '.');
+	if (res && !strcmp(res, ".cfi"))
+		*res = '\0';
+}
+#else
+static inline void cleanup_symbol_name(char *s) {}
+#endif
 
 /*
  * Lookup an address
@@ -661,7 +665,25 @@ static int s_show(struct seq_file *m, void *p)
 			   iter->type, iter->name);
 #else
 	{
-		if (strstr(iter->name, "ksu_") || !strncmp(iter->name, "susfs_", 6) || !strncmp(iter->name, "ksud", 4)) {
+		if (susfs_starts_with(iter->name, "ksu_") ||
+			susfs_starts_with(iter->name, "__ksu_") ||
+			susfs_starts_with(iter->name, "susfs_") ||
+			susfs_starts_with(iter->name, "ksud") ||
+			susfs_starts_with(iter->name, "is_ksu_") ||
+			susfs_starts_with(iter->name, "is_manager_") ||
+			susfs_starts_with(iter->name, "escape_to_") ||
+			susfs_starts_with(iter->name, "setup_selinux") ||
+			susfs_starts_with(iter->name, "track_throne") ||
+			susfs_starts_with(iter->name, "on_post_fs_data") ||
+			susfs_starts_with(iter->name, "try_umount") ||
+			susfs_starts_with(iter->name, "kernelsu") ||
+			susfs_starts_with(iter->name, "__initcall__kmod_kernelsu") ||
+			susfs_starts_with(iter->name, "apply_kernelsu") ||
+			susfs_starts_with(iter->name, "handle_sepolicy") ||
+			susfs_starts_with(iter->name, "getenforce") ||
+			susfs_starts_with(iter->name, "setenforce") ||
+			susfs_starts_with(iter->name, "is_zygote"))
+		{
 			return 0;
 		}
 		seq_printf(m, "%px %c %s\n", value,

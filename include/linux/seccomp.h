@@ -10,6 +10,7 @@
 
 #ifdef CONFIG_SECCOMP
 
+#include <linux/atomic.h>
 #include <linux/thread_info.h>
 #include <asm/seccomp.h>
 
@@ -27,6 +28,8 @@ struct seccomp_filter;
  */
 struct seccomp {
 	int mode;
+	/* SukiSU uses this counter on kernels predating the upstream field. */
+	atomic_t filter_count;
 	struct seccomp_filter *filter;
 };
 

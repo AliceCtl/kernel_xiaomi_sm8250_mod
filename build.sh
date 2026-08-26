@@ -2,12 +2,19 @@
 
 # Some logics of this script are copied from [scripts/build_kernel]. Thanks to UtsavBalar1231.
 
-# Ensure the script exits on error
-set -e
+# Ensure the script exits on errors, including failed downloads in pipelines.
+set -eo pipefail
 
 TOOLCHAIN_PATH=$HOME/proton-clang/proton-clang-20210522/bin
 GIT_COMMIT_ID=$(git rev-parse --short=8 HEAD)
 TARGET_DEVICE=$1
+KERNEL_ROOT=$(pwd -P)
+
+# builtin carries the compatibility layer required by pre-5.10 kernels.
+SUKISU_SETUP_COMMIT=5a2bb7e5813002ccaabe02fa864cfb2dde6b5109
+SUKISU_CORE_COMMIT=5a2bb7e5813002ccaabe02fa864cfb2dde6b5109
+SUKISU_UAPI_VERSION=2
+SUKISU_COMPAT_PATCH="$KERNEL_ROOT/patches/sukisu-4.19-compat.patch"
 
 if [ -z "$1" ]; then
     echo "Error: No argument provided, please specific a target device." 
@@ -95,7 +102,26 @@ echo "TARGET_DEVICE: $TARGET_DEVICE"
 
 if [ $KSU_ENABLE -eq 1 ]; then
     echo "KSU is enabled"
-    curl -LSs "https://github.com/liyafe1997/SukiSU-Ultra/raw/4ff14cf0051d04209c4abd5027d99d8e7780ef5b/kernel/setup.sh" | bash -s f4863b20cc8dc0f8cc67418980f022e43014b598
+    curl --fail --location --silent --show-error \
+        "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/${SUKISU_SETUP_COMMIT}/kernel/setup.sh" \
+        | bash -s "$SUKISU_CORE_COMMIT"
+
+    actual_sukisu_commit=$(git -C KernelSU rev-parse HEAD)
+    if [ "$actual_sukisu_commit" != "$SUKISU_CORE_COMMIT" ]; then
+        echo "SukiSU checkout mismatch: expected $SUKISU_CORE_COMMIT, got $actual_sukisu_commit" >&2
+        exit 1
+    fi
+
+    test -f "$SUKISU_COMPAT_PATCH"
+    git -C KernelSU apply --check "$SUKISU_COMPAT_PATCH"
+    git -C KernelSU apply "$SUKISU_COMPAT_PATCH"
+
+    grep -Eq "KERNEL_SU_UAPI_VERSION, ${SUKISU_UAPI_VERSION}\\)" \
+        KernelSU/kernel/include/uapi/supercall.h || {
+        echo "SukiSU UAPI v${SUKISU_UAPI_VERSION} is required" >&2
+        exit 1
+    }
+    echo "SukiSU core: $actual_sukisu_commit (UAPI v${SUKISU_UAPI_VERSION}, Linux 4.19 compatibility patch applied)"
 else
     echo "KSU is disabled"
 fi
@@ -123,22 +149,15 @@ make $MAKE_ARGS ${TARGET_DEVICE}_defconfig
 if [ $KSU_ENABLE -eq 1 ]; then
     scripts/config --file out/.config \
     -e KSU \
-    -e KSU_MANUAL_HOOK \
-    -e KSU_SUSFS_HAS_MAGIC_MOUNT \
+    -e KSU_SUSFS \
     -d KSU_SUSFS_SUS_PATH \
     -e KSU_SUSFS_SUS_MOUNT \
-    -e KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT \
-    -e KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT \
     -e KSU_SUSFS_SUS_KSTAT \
-    -d KSU_SUSFS_SUS_OVERLAYFS \
-    -e KSU_SUSFS_TRY_UMOUNT \
-    -e KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT \
     -e KSU_SUSFS_SPOOF_UNAME \
     -e KSU_SUSFS_ENABLE_LOG \
     -e KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \
     -e KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
     -d KSU_SUSFS_OPEN_REDIRECT \
-    -d KSU_SUSFS_SUS_SU \
     -e KPM
 else
     scripts/config --file out/.config -d KSU
@@ -262,22 +281,15 @@ make $MAKE_ARGS ${TARGET_DEVICE}_defconfig
 if [ $KSU_ENABLE -eq 1 ]; then
     scripts/config --file out/.config \
     -e KSU \
-    -e KSU_MANUAL_HOOK \
-    -e KSU_SUSFS_HAS_MAGIC_MOUNT \
+    -e KSU_SUSFS \
     -d KSU_SUSFS_SUS_PATH \
     -e KSU_SUSFS_SUS_MOUNT \
-    -e KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT \
-    -e KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT \
     -e KSU_SUSFS_SUS_KSTAT \
-    -d KSU_SUSFS_SUS_OVERLAYFS \
-    -e KSU_SUSFS_TRY_UMOUNT \
-    -e KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT \
     -e KSU_SUSFS_SPOOF_UNAME \
     -e KSU_SUSFS_ENABLE_LOG \
     -e KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \
     -e KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
     -d KSU_SUSFS_OPEN_REDIRECT \
-    -d KSU_SUSFS_SUS_SU \
     -e KPM
 else
     scripts/config --file out/.config -d KSU
