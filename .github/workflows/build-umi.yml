@@ -1,0 +1,221 @@
+name: Build UMI kernel
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/umi-box4magisk-netfilter
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-umi-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build umi AnyKernel3 packages
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    env:
+      TZ: UTC
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Install build dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y \
+            bc \
+            bison \
+            binutils-aarch64-linux-gnu \
+            binutils-arm-linux-gnueabi \
+            build-essential \
+            ccache \
+            cpio \
+            curl \
+            flex \
+            git \
+            libelf-dev \
+            libncurses-dev \
+            libssl-dev \
+            python-is-python3 \
+            unzip \
+            wget \
+            zip
+
+      - name: Restore Proton Clang cache
+        id: proton-clang-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/proton-clang/proton-clang-20210522
+          key: proton-clang-${{ runner.os }}-20210522
+
+      - name: Install Proton Clang
+        if: steps.proton-clang-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          toolchain_root="$HOME/proton-clang"
+          toolchain_dir="$toolchain_root/proton-clang-20210522"
+          archive="$RUNNER_TEMP/proton-clang-20210522.zip"
+          mkdir -p "$toolchain_root"
+          curl --fail --location --retry 5 --retry-delay 2 \
+            "https://github.com/kdrag0n/proton-clang/archive/refs/tags/20210522.zip" \
+            --output "$archive"
+          unzip -q "$archive" -d "$toolchain_root"
+          test -x "$toolchain_dir/bin/clang"
+
+      - name: Verify toolchain
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/proton-clang/proton-clang-20210522/bin:$PATH"
+          for command_name in clang aarch64-linux-gnu-ld arm-linux-gnueabi-ld; do
+            command -v "$command_name"
+          done
+          clang --version
+
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache_mikernel
+          key: ccache-umi-${{ runner.os }}-${{ hashFiles('build.sh', 'arch/arm64/configs/umi_defconfig') }}
+          restore-keys: |
+            ccache-umi-${{ runner.os }}-
+
+      - name: Validate umi configuration
+        run: |
+          set -euo pipefail
+          config_path="arch/arm64/configs/umi_defconfig"
+          required_symbols=(
+            CONFIG_IKCONFIG_PROC
+            CONFIG_IPV6
+            CONFIG_IPV6_MULTIPLE_TABLES
+            CONFIG_NF_TPROXY_IPV6
+            CONFIG_IP_SET
+            CONFIG_IP_SET_HASH_NET
+            CONFIG_NETFILTER_XT_SET
+            CONFIG_NETFILTER_XT_TARGET_TPROXY
+            CONFIG_NETFILTER_XT_TARGET_CONNMARK
+            CONFIG_NETFILTER_XT_TARGET_MARK
+            CONFIG_NETFILTER_XT_MATCH_ADDRTYPE
+            CONFIG_NETFILTER_XT_MATCH_CONNMARK
+            CONFIG_NETFILTER_XT_MATCH_CONNTRACK
+            CONFIG_NETFILTER_XT_MATCH_MARK
+            CONFIG_NETFILTER_XT_MATCH_OWNER
+            CONFIG_NETFILTER_XT_MATCH_SOCKET
+            CONFIG_IP6_NF_IPTABLES
+            CONFIG_IP6_NF_MANGLE
+            CONFIG_IP6_NF_NAT
+            CONFIG_NETFILTER_XT_TARGET_REDIRECT
+            CONFIG_TUN
+          )
+
+          for symbol in "${required_symbols[@]}"; do
+            grep -qx "${symbol}=y" "$config_path" || {
+              echo "${symbol} must be built in (y) in ${config_path}" >&2
+              exit 1
+            }
+          done
+
+          rm -rf out
+          make ARCH=arm64 O=out umi_defconfig
+          for symbol in "${required_symbols[@]}"; do
+            grep -qx "${symbol}=y" out/.config || {
+              echo "${symbol} did not resolve to y in out/.config" >&2
+              exit 1
+            }
+          done
+
+      - name: Build AOSP and MIUI packages
+        run: |
+          set -Eeuo pipefail
+          config_path="arch/arm64/configs/umi_defconfig"
+          config_backup="$RUNNER_TEMP/umi_defconfig"
+          cp "$config_path" "$config_backup"
+
+          restore_config() {
+            cp "$config_backup" "$config_path"
+          }
+          trap restore_config EXIT
+
+          bash build.sh umi 2>&1 | tee "$RUNNER_TEMP/build-umi.log"
+          restore_config
+          trap - EXIT
+
+          git diff --exit-code -- "$config_path"
+          git diff --exit-code
+
+      - name: Collect build artifacts
+        id: artifacts
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          aosp=(Kernel_AOSP_umi_NoKernelSU_*_anykernel3_*.zip)
+          miui=(Kernel_MIUI_umi_NoKernelSU_*_anykernel3_*.zip)
+
+          if (( ${#aosp[@]} != 1 )); then
+            printf 'Expected one AOSP ZIP, found %s\n' "${#aosp[@]}" >&2
+            exit 1
+          fi
+          if (( ${#miui[@]} != 1 )); then
+            printf 'Expected one MIUI ZIP, found %s\n' "${#miui[@]}" >&2
+            exit 1
+          fi
+
+          stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+          commit="$(git rev-parse --short=12 HEAD)"
+          artifact_root="$RUNNER_TEMP/umi-artifacts"
+          mkdir -p "$artifact_root/aosp" "$artifact_root/miui"
+          cp "${aosp[0]}" "$artifact_root/aosp/"
+          cp "${miui[0]}" "$artifact_root/miui/"
+
+          for variant in aosp miui; do
+            printf 'device=umi\nvariant=%s\nkernelsu=disabled\nkernel_commit=%s\nworkflow_run=%s\nbuild_timestamp_utc=%s\n' \
+              "$variant" "$commit" "$GITHUB_RUN_ID" "$stamp" \
+              > "$artifact_root/$variant/build-metadata.txt"
+          done
+
+          echo "stamp=$stamp" >> "$GITHUB_OUTPUT"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+
+      - name: Upload AOSP artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: umi-aosp-NoKernelSU-${{ steps.artifacts.outputs.stamp }}-${{ steps.artifacts.outputs.commit }}
+          path: ${{ runner.temp }}/umi-artifacts/aosp
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload MIUI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: umi-miui-NoKernelSU-${{ steps.artifacts.outputs.stamp }}-${{ steps.artifacts.outputs.commit }}
+          path: ${{ runner.temp }}/umi-artifacts/miui
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Clean generated files
+        if: always()
+        run: |
+          rm -rf out anykernel .dts.bak
+          rm -f Kernel_AOSP_umi_*.zip Kernel_MIUI_umi_*.zip
+
+      - name: Upload failure logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: umi-build-logs-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/build-umi.log
+          if-no-files-found: warn
+          retention-days: 14
