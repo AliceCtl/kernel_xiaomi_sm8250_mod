@@ -107,3 +107,47 @@ diff --git a/kernel/manager/apk_sign.c b/kernel/manager/apk_sign.c
      { 0x396, "f415f4ed9435427e1fdf7f1fccd4dbc07b3d6b8751e4dbcec6f19671f427870b" }, // RKSU
      { 0x033b, "c371061b19d8c7d7d6133c6a9bafe198fa944e50c1b31c9d8daa8d7f1fc2d2d6" }, // KSU
      { 0x381, "52d52d8c8bfbe53dc2b6ff1c613184e2c03013e090fe8905d8e3d5dc2658c2e4" }, // WKSU
+
+diff --git a/kernel/hook/lsm_hook.c b/kernel/hook/lsm_hook.c
+--- a/kernel/hook/lsm_hook.c
++++ b/kernel/hook/lsm_hook.c
+@@ -80,5 +80,30 @@ do_umount:
+     return 0;
+ }
++
++/*
++ * Some Android 15 vendor zygotes transition the child to its app SELinux
++ * domain before setresuid().  In that case the SUSFS syscall hook above
++ * deliberately ignores the process, so recover manager injection from the
++ * credential transition while the old credential is still root.
++ */
++static int ksu_task_fix_setuid(struct cred *new, const struct cred *old, int flags)
++{
++    uid_t new_uid;
++
++    if (unlikely(!new || !old) || old->uid.val != 0)
++        return 0;
++
++    new_uid = new->uid.val;
++    if (likely(ksu_is_manager_appid_valid()) &&
++        unlikely(is_uid_manager(new_uid)) &&
++        !susfs_is_sid_equal(old, susfs_zygote_sid)) {
++        disable_seccomp();
++        pr_info("install fd for manager fallback: %d\n", new_uid);
++        ksu_install_fd();
++    }
++
++    return 0;
++}
+ #else
+ static int ksu_task_fix_setuid(struct cred *new, const struct cred *old, int flags)
+ {
+@@ -112,8 +137,6 @@ static struct security_hook_list ksu_hooks[] = {
+ #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 10, 0) || defined(CONFIG_IS_HW_HISI) ||                                     \
+     defined(CONFIG_KSU_ALLOWLIST_WORKAROUND)
+     LSM_HOOK_INIT(key_permission, ksu_key_permission),
+ #endif
+-#ifndef CONFIG_KSU_SUSFS
+     LSM_HOOK_INIT(task_fix_setuid, ksu_task_fix_setuid),
+-#endif
+ };
