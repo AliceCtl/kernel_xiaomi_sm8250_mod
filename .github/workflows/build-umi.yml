@@ -25,6 +25,10 @@ jobs:
       SUKISU_MIN_MANAGER_VERSION: "32513"
       SUKISU_EXPECTED_HOOK: SUSFS Inline Hook
       SUSFS_EXPECTED_VERSION: v2.2.0
+      RESUKISU_MANAGER_NAME: ReSukiSU
+      RESUKISU_MANAGER_PACKAGE: com.resukisu.resukisu
+      RESUKISU_EXPECTED_CERT_SIZE: "0x377"
+      RESUKISU_EXPECTED_CERT_SHA256: d3469712b6214462764a1d8d3e5cbe1d6819a0b629791b9f4101867821f1df64
     defaults:
       run:
         shell: bash
@@ -172,6 +176,13 @@ jobs:
           git -C KernelSU apply --reverse --check \
             "$GITHUB_WORKSPACE/patches/sukisu-4.19-compat.patch"
 
+          apk_sign_source="KernelSU/kernel/manager/apk_sign.c"
+          resukisu_signature="    { ${RESUKISU_EXPECTED_CERT_SIZE}, \"${RESUKISU_EXPECTED_CERT_SHA256}\" }, // ReSukiSU"
+          grep -Fqx "${resukisu_signature}" "$apk_sign_source"
+          grep -Fq -- \
+            "-- KernelSU Manager package name: ${RESUKISU_MANAGER_PACKAGE}" \
+            "$RUNNER_TEMP/build-umi.log"
+
           uapi_header="KernelSU/kernel/include/uapi/supercall.h"
           dispatch_source="KernelSU/kernel/supercall/dispatch.c"
           grep -Fqx \
@@ -241,6 +252,10 @@ jobs:
           echo "sukisu_version=$sukisu_version" >> "$GITHUB_OUTPUT"
           echo "susfs_version=$SUSFS_EXPECTED_VERSION" >> "$GITHUB_OUTPUT"
           echo "hook_type=$SUKISU_EXPECTED_HOOK" >> "$GITHUB_OUTPUT"
+          echo "manager=$RESUKISU_MANAGER_NAME" >> "$GITHUB_OUTPUT"
+          echo "manager_package=$RESUKISU_MANAGER_PACKAGE" >> "$GITHUB_OUTPUT"
+          echo "manager_cert_size=$RESUKISU_EXPECTED_CERT_SIZE" >> "$GITHUB_OUTPUT"
+          echo "manager_cert_sha256=$RESUKISU_EXPECTED_CERT_SHA256" >> "$GITHUB_OUTPUT"
 
           git diff --exit-code -- "$config_path"
 
@@ -269,8 +284,12 @@ jobs:
           cp "${miui[0]}" "$artifact_root/miui/"
 
           for variant in aosp miui; do
-            printf 'device=umi\nvariant=%s\nkernelsu=SukiSU-SUSFS\nkernel_commit=%s\nsukisu_commit=%s\nsukisu_version=%s\nsukisu_uapi=%s\nhook_type=%s\nsusfs_version=%s\nkpm=enabled\nworkflow_run=%s\nbuild_timestamp_utc=%s\n' \
+            printf 'device=umi\nvariant=%s\nkernelsu=SukiSU-SUSFS\nmanager=%s\nmanager_package=%s\nmanager_cert_size=%s\nmanager_cert_sha256=%s\nkernel_commit=%s\nsukisu_commit=%s\nsukisu_version=%s\nsukisu_uapi=%s\nhook_type=%s\nsusfs_version=%s\nkpm=enabled\nworkflow_run=%s\nbuild_timestamp_utc=%s\n' \
               "$variant" \
+              "${{ steps.kernel.outputs.manager }}" \
+              "${{ steps.kernel.outputs.manager_package }}" \
+              "${{ steps.kernel.outputs.manager_cert_size }}" \
+              "${{ steps.kernel.outputs.manager_cert_sha256 }}" \
               "$commit" \
               "${{ steps.kernel.outputs.sukisu_commit }}" \
               "${{ steps.kernel.outputs.sukisu_version }}" \

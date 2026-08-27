@@ -1,8 +1,16 @@
 [☕Buy me a coffee](https://ko-fi.com/strawing)
 # Notice / 注意
-The UMI SukiSU build pins the official `builtin` core at `5a2bb7e5813002ccaabe02fa864cfb2dde6b5109`, enables UAPI v2, SUSFS and KPM, and applies the included Linux 4.19 compatibility patch. The generated artifact metadata records the exact core version and hook type.
+The UMI SukiSU build pins the official `builtin` core at `5a2bb7e5813002ccaabe02fa864cfb2dde6b5109`, enables UAPI v2, SUSFS and KPM, and applies the included Linux 4.19 compatibility patch. The generated artifact metadata records the exact core version, hook type, and ReSukiSU identity.
 
-UMI 的 SukiSU 构建已固定到官方 `builtin` 核心 `5a2bb7e5813002ccaabe02fa864cfb2dde6b5109`，启用 UAPI v2、SUSFS 和 KPM，并应用仓库内的 Linux 4.19 兼容补丁。构建产物元数据会记录实际核心版本和 Hook 类型。
+UMI 的 SukiSU 构建已固定到官方 `builtin` 核心 `5a2bb7e5813002ccaabe02fa864cfb2dde6b5109`，启用 UAPI v2、SUSFS 和 KPM，并应用仓库内的 Linux 4.19 兼容补丁。构建产物元数据会记录实际核心版本、Hook 类型和 ReSukiSU 身份信息。
+
+## UMI manager compatibility
+
+The UMI SukiSU-SUSFS image accepts ReSukiSU as its only manager. The kernel is built with the ReSukiSU package name `com.resukisu.resukisu` and certificate SHA-256 `d3469712b6214462764a1d8d3e5cbe1d6819a0b629791b9f4101867821f1df64`.
+
+After changing the manager, flash a newly built AOSP or MIUI AnyKernel ZIP before testing. Then uninstall or disable SukiSU Ultra, install the ReSukiSU APK, and reboot. A previously flashed image cannot recognize ReSukiSU because manager identities are checked by the kernel at APK installation time.
+
+For a runtime check, the ReSukiSU process should have a file descriptor whose target is `[ksu_driver]`. The kernel log should also contain `Found new base.apk ... is_manager: 1`, `install fd for manager`, and `ksu fd installed`. If these messages are absent, verify that the new image is booted and that the installed APK package and signature match the metadata above.
 
 # About this repo
 
@@ -17,7 +25,7 @@ So still Thanks to [@UtsavBalar1231](https://github.com/UtsavBalar1231/)!
 
 The main purpose of maintaining and building this kernel is to fix [this battery stuck at 1% problem](https://github.com/liyafe1997/Xiaomi-fix-battery-one-percent), and provide [SukiSU](https://github.com/ShirkNeko/SukiSU-Ultra)(A KernelSU fork with KPM support) & [SUSFS](https://github.com/sidex15/susfs4ksu-module) integrated pre-built image(flashable anykernel3 zip). Also provides a more intuitive and easy-to-use build script and build guide that allow you to try to build by yourself.
 
-For using the SukiSU, you can install the SukiSU manager APK from [SukiSU Github Release](https://github.com/ShirkNeko/SukiSU-Ultra/releases). For the SUSFS module see [susfs4ksu-module Gihub Release](https://github.com/sidex15/susfs4ksu-module/releases).
+For using the SukiSU kernel on UMI, install the ReSukiSU manager APK (`com.resukisu.resukisu`) after flashing a current image. Do not use SukiSU Ultra as the active manager for this build. For the SUSFS module see [susfs4ksu-module Gihub Release](https://github.com/sidex15/susfs4ksu-module/releases).
 
 (The devices affected by the "1% battery bug" are: alioth, apollo, lmi, thyme, umi, pipa. Because they all use the PM8150, aka Qualcomm fuel gauge GEN4. For the other devices are not affected by that bug, you can use this kernel for KernelSU purpose, as a replacement of the orginal stock kernel. Also, as the people tested, this kernel NoKernelSU version is good for applying [APatch](https://github.com/bmax121/APatch)).
 
@@ -58,7 +66,7 @@ Other Features/Improvement of this Kernel:
 
 所以仍然感谢 [@UtsavBalar1231](https://github.com/UtsavBalar1231/)！
 
-维护和编译这个内核的主要目的是想修复[电量卡在1%的问题](https://github.com/liyafe1997/Xiaomi-fix-battery-one-percent)，以及提供带[SukiSU](https://github.com/ShirkNeko/SukiSU-Ultra)(一个KernelSU的fork，支持KPM) & [SUSFS](https://github.com/sidex15/susfs4ksu-module)的预编译好的内核（请自行安装[SukiSU的管理器](https://github.com/ShirkNeko/SukiSU-Ultra/releases)以及根据需要刷上SUSFS模块）。以及再提供一个更直观和易用的编译脚本和README，方便大家自己折腾和修改，编译自己的内核！
+维护和编译这个内核的主要目的是想修复[电量卡在1%的问题](https://github.com/liyafe1997/Xiaomi-fix-battery-one-percent)，以及提供带[SukiSU](https://github.com/ShirkNeko/SukiSU-Ultra)(一个KernelSU的fork，支持KPM) & [SUSFS](https://github.com/sidex15/susfs4ksu-module)的预编译好的内核（UMI 请在刷入新镜像后安装包名为 `com.resukisu.resukisu` 的 ReSukiSU 管理器，并根据需要刷上SUSFS模块）。以及再提供一个更直观和易用的编译脚本和README，方便大家自己折腾和修改，编译自己的内核！
 
 （其中受“1%电量bug”影响的设备有：alioth, apollo, lmi, thyme, umi, pipa，因为它们都用了PM8150即高通的GEN4电量计。其它不受此bug影响的设备大可把这个内核当成个带SukiSU & SUSFS的官核平替，如果你想找一个带KernelSU的内核的话。并且据大家测试，该内核不带KernelSU版本可以应用[APatch](https://github.com/bmax121/APatch)）
 
@@ -67,6 +75,14 @@ Release里的编译好的内核成品由`android15-lineage22-mod`分支编译，
 注意：该内核的zip包不包含`dtbo.img`，并且不会刷你的dtbo分区。推荐使用原厂的`dtbo`，或者来自第三方系统包自带的dtbo（如果原作者确认那好用的话）。因为该源码build出来的`dtbo.img`有些小问题，比如在锁屏界面上尝试熄屏时，屏幕会突然闪一下到最高亮度。如果你刷过其它第三方内核，或者遇到一些奇怪的问题，建议检查一下你的`dtbo`是否被替换过。
 
 **注意：如果你在用HyperOS/MIUI请刷MIUI的版本，AOSP版因为display驱动不同，在HyperOS/MIUI上屏幕无法正常显示，如果刷内核之后开机黑屏，请先检查你是不是正在用着HyperOS/MIUI但是刷了AOSP版**
+
+## UMI 管理器兼容性
+
+UMI 的 SukiSU-SUSFS 镜像只接受 ReSukiSU 作为管理器。内核固定识别包名 `com.resukisu.resukisu`，证书 SHA-256 为 `d3469712b6214462764a1d8d3e5cbe1d6819a0b629791b9f4101867821f1df64`。
+
+更换管理器后，必须先刷入新构建的 AOSP 或 MIUI AnyKernel ZIP，再卸载或停用 SukiSU Ultra，安装 ReSukiSU APK 并重启。旧内核镜像不会识别 ReSukiSU，因为管理器身份是在内核扫描 APK 时按签名校验的。
+
+运行时应能在 ReSukiSU 进程的文件描述符中看到目标为 `[ksu_driver]` 的 fd；内核日志还应包含 `Found new base.apk ... is_manager: 1`、`install fd for manager` 和 `ksu fd installed`。如果没有这些日志，请先确认设备实际启动的是新镜像，并核对 APK 包名和签名是否与上面的元数据一致。
 
 度盘备用下载链接：https://pan.baidu.com/share/init?surl=11ocz7ggZ79gzRfWvsdbJA&pwd=ty58 （建议优先从Github Release下载）
 
@@ -151,4 +167,3 @@ Release里的编译好的内核成品由`android15-lineage22-mod`分支编译，
     ```
 
     And also, here is a `buildall.sh` can build for all supported models at once.
-

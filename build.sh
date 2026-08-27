@@ -15,6 +15,9 @@ SUKISU_SETUP_COMMIT=5a2bb7e5813002ccaabe02fa864cfb2dde6b5109
 SUKISU_CORE_COMMIT=5a2bb7e5813002ccaabe02fa864cfb2dde6b5109
 SUKISU_UAPI_VERSION=2
 SUKISU_COMPAT_PATCH="$KERNEL_ROOT/patches/sukisu-4.19-compat.patch"
+RESUKISU_MANAGER_PACKAGE=com.resukisu.resukisu
+RESUKISU_MANAGER_CERT_SIZE=0x377
+RESUKISU_MANAGER_CERT_SHA256=d3469712b6214462764a1d8d3e5cbe1d6819a0b629791b9f4101867821f1df64
 
 if [ -z "$1" ]; then
     echo "Error: No argument provided, please specific a target device." 
@@ -93,6 +96,8 @@ KSU_ZIP_STR=NoKernelSU
 if [ "$2" == "ksu" ]; then
     KSU_ENABLE=1
     KSU_ZIP_STR=SukiSU-SUSFS
+    # The kernel accepts ReSukiSU as the sole manager identity for this build.
+    MAKE_ARGS="$MAKE_ARGS KSU_MANAGER_PACKAGE=${RESUKISU_MANAGER_PACKAGE}"
 else
     KSU_ENABLE=0
 fi
@@ -116,12 +121,21 @@ if [ $KSU_ENABLE -eq 1 ]; then
     git -C KernelSU apply --check "$SUKISU_COMPAT_PATCH"
     git -C KernelSU apply "$SUKISU_COMPAT_PATCH"
 
+    apk_sign_source=KernelSU/kernel/manager/apk_sign.c
+    resukisu_signature="    { ${RESUKISU_MANAGER_CERT_SIZE}, \"${RESUKISU_MANAGER_CERT_SHA256}\" }, // ReSukiSU"
+    grep -Fqx \
+        "${resukisu_signature}" "$apk_sign_source" || {
+        echo "ReSukiSU certificate entry is missing from ${apk_sign_source}" >&2
+        exit 1
+    }
+
     grep -Eq "KERNEL_SU_UAPI_VERSION, ${SUKISU_UAPI_VERSION}\\)" \
         KernelSU/kernel/include/uapi/supercall.h || {
         echo "SukiSU UAPI v${SUKISU_UAPI_VERSION} is required" >&2
         exit 1
     }
     echo "SukiSU core: $actual_sukisu_commit (UAPI v${SUKISU_UAPI_VERSION}, Linux 4.19 compatibility patch applied)"
+    echo "KernelSU manager: ReSukiSU (${RESUKISU_MANAGER_PACKAGE}, cert ${RESUKISU_MANAGER_CERT_SIZE}/${RESUKISU_MANAGER_CERT_SHA256})"
 else
     echo "KSU is disabled"
 fi
