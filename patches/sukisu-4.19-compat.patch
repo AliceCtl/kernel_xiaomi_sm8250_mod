@@ -502,8 +502,10 @@ index f8a33fa..8815fdf 100644
 +#undef KSU_RULE
 +
  void apply_kernelsu_rules(void)
-@@ -154,2 +352,5 @@ void apply_kernelsu_rules(void)
+@@ -154,2 +352,7 @@ void apply_kernelsu_rules(void)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
      struct policydb *db;
++#endif
 +    int ret = 0;
 +
 +    ksu_boottrace("rules_begin");
