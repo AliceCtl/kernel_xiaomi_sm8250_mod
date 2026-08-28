@@ -7,8 +7,29 @@ set -eo pipefail
 
 TOOLCHAIN_PATH=$HOME/proton-clang/proton-clang-20210522/bin
 GIT_COMMIT_ID=$(git rev-parse --short=8 HEAD)
-TARGET_DEVICE=$1
 KERNEL_ROOT=$(pwd -P)
+
+TARGET_DEVICE=
+KSU_ENABLE=0
+DEBUG_BUILD=0
+NO_KPM=0
+BUILD_J1=0
+CONTINUE_BUILD=0
+
+for build_arg in "$@"; do
+    case "$build_arg" in
+        ksu) KSU_ENABLE=1 ;;
+        debug) DEBUG_BUILD=1 ;;
+        no-kpm) NO_KPM=1 ;;
+        j1) BUILD_J1=1 ;;
+        continue) CONTINUE_BUILD=1 ;;
+        *)
+            if [ -z "$TARGET_DEVICE" ]; then
+                TARGET_DEVICE="$build_arg"
+            fi
+            ;;
+    esac
+done
 
 # builtin carries the compatibility layer required by pre-5.10 kernels.
 SUKISU_SETUP_COMMIT=5a2bb7e5813002ccaabe02fa864cfb2dde6b5109
@@ -19,7 +40,7 @@ RESUKISU_MANAGER_PACKAGE=com.resukisu.resukisu
 RESUKISU_MANAGER_CERT_SIZE=0x377
 RESUKISU_MANAGER_CERT_SHA256=d3469712b6214462764a1d8d3e5cbe1d6819a0b629791b9f4101867821f1df64
 
-if [ -z "$1" ]; then
+if [ -z "$TARGET_DEVICE" ] && [ "$BUILD_J1" -eq 0 ] && [ "$CONTINUE_BUILD" -eq 0 ]; then
     echo "Error: No argument provided, please specific a target device." 
     echo "If you need KernelSU, please add [ksu] as the second arg."
     echo "Examples:"
@@ -27,6 +48,10 @@ if [ -z "$1" ]; then
     echo "    bash build.sh lmi"
     echo "Build for umi(Mi10) with KernelSU:"
     echo "    bash build.sh umi ksu"
+    echo "Build for umi with KernelSU and boot diagnostics:"
+    echo "    bash build.sh umi ksu debug"
+    echo "Build for umi with KernelSU without KPM:"
+    echo "    bash build.sh umi ksu no-kpm"
     exit 1
 fi
 
@@ -68,12 +93,12 @@ echo "CCACHE_DIR: [$CCACHE_DIR]"
 MAKE_ARGS="ARCH=arm64 SUBARCH=arm64 O=out CC=clang CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- CLANG_TRIPLE=aarch64-linux-gnu-"
 
 
-if [ "$1" == "j1" ]; then
+if [ "$BUILD_J1" -eq 1 ]; then
     make $MAKE_ARGS -j1
     exit
 fi
 
-if [ "$1" == "continue" ]; then
+if [ "$CONTINUE_BUILD" -eq 1 ]; then
     make $MAKE_ARGS -j$(nproc)
     exit
 fi
@@ -93,8 +118,7 @@ clang --version
 
 
 KSU_ZIP_STR=NoKernelSU
-if [ "$2" == "ksu" ]; then
-    KSU_ENABLE=1
+if [ "$KSU_ENABLE" -eq 1 ]; then
     KSU_ZIP_STR=SukiSU-SUSFS
     # The kernel accepts ReSukiSU as the sole manager identity for this build.
     MAKE_ARGS="$MAKE_ARGS KSU_MANAGER_PACKAGE=${RESUKISU_MANAGER_PACKAGE}"
@@ -140,6 +164,35 @@ else
     echo "KSU is disabled"
 fi
 
+apply_debug_config() {
+    if [ "$DEBUG_BUILD" -ne 1 ]; then
+        return 0
+    fi
+
+    echo "Enabling boot diagnostics"
+    scripts/config --file out/.config \
+        -e DEBUG_KERNEL \
+        -e FRAME_POINTER \
+        -e KALLSYMS_ALL \
+        -e DYNAMIC_DEBUG \
+        -e DEBUG_ATOMIC_SLEEP \
+        -e DEBUG_PREEMPT \
+        -e PROVE_LOCKING \
+        -e SOFTLOCKUP_DETECTOR \
+        -e DETECT_HUNG_TASK \
+        -e WQ_WATCHDOG \
+        -e PANIC_ON_OOPS \
+        -e BOOTPARAM_SOFTLOCKUP_PANIC \
+        -e BOOTPARAM_HUNG_TASK_PANIC \
+        --set-val PANIC_TIMEOUT 5
+
+    if [ "$KSU_ENABLE" -eq 1 ]; then
+        scripts/config --file out/.config -e KSU_BOOT_DEBUG
+    else
+        scripts/config --file out/.config -d KSU_BOOT_DEBUG
+    fi
+}
+
 
 echo "Cleaning..."
 
@@ -171,11 +224,18 @@ if [ $KSU_ENABLE -eq 1 ]; then
     -e KSU_SUSFS_ENABLE_LOG \
     -e KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \
     -e KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
-    -d KSU_SUSFS_OPEN_REDIRECT \
-    -e KPM
+    -d KSU_SUSFS_OPEN_REDIRECT
+
+    if [ "$NO_KPM" -eq 1 ]; then
+        scripts/config --file out/.config -d KPM
+    else
+        scripts/config --file out/.config -e KPM
+    fi
 else
-    scripts/config --file out/.config -d KSU
+    scripts/config --file out/.config -d KSU -d KPM
 fi
+
+apply_debug_config
 
 make $MAKE_ARGS -j$(nproc)
 
@@ -195,7 +255,7 @@ rm -rf anykernel/kernels/
 mkdir -p anykernel/kernels/
 
 # Patch for SukiSU KPM support. 
-if [ $KSU_ENABLE -eq 1 ]; then
+if [ "$KSU_ENABLE" -eq 1 ] && [ "$NO_KPM" -eq 0 ]; then
     cd out/arch/arm64/boot/
     wget https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/download/0.12.0/patch_linux
     chmod +x patch_linux
@@ -303,11 +363,18 @@ if [ $KSU_ENABLE -eq 1 ]; then
     -e KSU_SUSFS_ENABLE_LOG \
     -e KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \
     -e KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
-    -d KSU_SUSFS_OPEN_REDIRECT \
-    -e KPM
+    -d KSU_SUSFS_OPEN_REDIRECT
+
+    if [ "$NO_KPM" -eq 1 ]; then
+        scripts/config --file out/.config -d KPM
+    else
+        scripts/config --file out/.config -e KPM
+    fi
 else
-    scripts/config --file out/.config -d KSU
+    scripts/config --file out/.config -d KSU -d KPM
 fi
+
+apply_debug_config
 
 
 scripts/config --file out/.config \
@@ -362,7 +429,7 @@ rm -rf anykernel/kernels/
 mkdir -p anykernel/kernels/
 
 # Patch for SukiSU KPM support. 
-if [ $KSU_ENABLE -eq 1 ]; then
+if [ "$KSU_ENABLE" -eq 1 ] && [ "$NO_KPM" -eq 0 ]; then
     cd out/arch/arm64/boot/
     wget https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/download/0.12.0/patch_linux
     chmod +x patch_linux

@@ -1,118 +1,23 @@
-diff --git a/kernel/runtime/ksud.c b/kernel/runtime/ksud.c
---- a/kernel/runtime/ksud.c
-+++ b/kernel/runtime/ksud.c
-@@ -54,5 +54,7 @@ void on_post_fs_data(void)
-     ksu_observer_init();
-     // sanity check, this may influence the performance
-     stop_input_hook();
-+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
-     ksu_selinux_hide_handle_post_fs_data();
-+#endif
- }
-@@ -216,7 +218,9 @@ int ksu_handle_execveat_ksud(int *fd, struct filename **filename_ptr,
-             char buf[16];
-             if (check_argv(*argv, 1, "second_stage", buf, sizeof(buf))) {
-                 pr_info("/system/bin/init second_stage executed\n");
-+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
-                 ksu_selinux_hide_handle_second_stage();
-+#endif
-                 apply_kernelsu_rules();
-                 cache_sid();
-                 setup_ksu_cred();
-@@ -288,7 +292,9 @@ int ksu_handle_execveat_ksud(int *fd, struct filename **filename_ptr, struct user
-         char buf[16];
-         if (!init_second_stage_executed && check_argv(*argv, 1, "second_stage", buf, sizeof(buf))) {
-             pr_info("/system/bin/init second_stage executed\n");
-+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
-             ksu_selinux_hide_handle_second_stage();
-+#endif
-             apply_kernelsu_rules();
-             cache_sid();
-             setup_ksu_cred();
-diff --git a/kernel/policy/allowlist.c b/kernel/policy/allowlist.c
---- a/kernel/policy/allowlist.c
-+++ b/kernel/policy/allowlist.c
-@@ -448,6 +448,6 @@ static void migrate_profile(u32 version, struct app_profile *profile)
-             }
-         }
--        fallthrough;
-+        /* fall through */
-     case 3:
-         if (profile->allow_su) {
-             profile->rp_config.profile.flags = FLAG_KSU_NO_NEW_PRIVS;
-diff --git a/kernel/sulog/event.c b/kernel/sulog/event.c
---- a/kernel/sulog/event.c
-+++ b/kernel/sulog/event.c
-@@ -142,7 +142,7 @@ static __u32 ksu_sulog_flatten_argv(struct user_arg_ptr *argv_user, char *dst, __u32 dst_len)
-         if (IS_ERR(arg_user))
-             return ksu_sulog_copy_empty_string(dst);
+diff --git a/kernel/Kconfig b/kernel/Kconfig
+index 0cc760f..44f7c51 100644
+--- a/kernel/Kconfig
++++ b/kernel/Kconfig
+@@ -24,2 +24,10 @@ config KSU_DEBUG
 
-         copied =
--            strncpy_from_user_nofault(arg, (const void __user *)untagged_addr((unsigned long)arg_user), sizeof(arg));
-+            ksu_strncpy_from_user_nofault(arg, (const void __user *)untagged_addr((unsigned long)arg_user), sizeof(arg));
-         if (copied <= 0)
-             return ksu_sulog_copy_empty_string(dst);
-diff --git a/kernel/kpm/kpm.c b/kernel/kpm/kpm.c
---- a/kernel/kpm/kpm.c
-+++ b/kernel/kpm/kpm.c
-@@ -135,2 +135,2 @@ noinline int sukisu_handle_kpm(unsigned long control_code, unsigned long arg1,
--        if (!access_ok(arg1, 255)) {
-+        if (!ksu_access_ok(arg1, 255)) {
-             goto invalid_arg;
-@@ -142,2 +142,2 @@ noinline int sukisu_handle_kpm(unsigned long control_code, unsigned long arg1,
--            if (!access_ok(arg2, 255)) {
-+            if (!ksu_access_ok(arg2, 255)) {
-                 goto invalid_arg;
-@@ -161,2 +161,2 @@ noinline int sukisu_handle_kpm(unsigned long control_code, unsigned long arg1,
--        if (!access_ok(arg1, sizeof(kernel_name_buffer))) {
-+        if (!ksu_access_ok(arg1, sizeof(kernel_name_buffer))) {
-             goto invalid_arg;
-@@ -181,2 +181,2 @@ noinline int sukisu_handle_kpm(unsigned long control_code, unsigned long arg1,
--        if (!access_ok(arg1, sizeof(kernel_name_buffer))) {
-+        if (!ksu_access_ok(arg1, sizeof(kernel_name_buffer))) {
-             goto invalid_arg;
-@@ -192,2 +192,2 @@ noinline int sukisu_handle_kpm(unsigned long control_code, unsigned long arg1,
--        if (!access_ok(arg2, size)) {
-+        if (!ksu_access_ok(arg2, size)) {
-             goto invalid_arg;
-@@ -207,2 +207,2 @@ noinline int sukisu_handle_kpm(unsigned long control_code, unsigned long arg1,
--        if (!access_ok(arg2, len)) {
-+        if (!ksu_access_ok(arg2, len)) {
-             goto invalid_arg;
-@@ -225,2 +225,2 @@ noinline int sukisu_handle_kpm(unsigned long control_code, unsigned long arg1,
--        if (!access_ok(arg1, sizeof(kpm_name))) {
-+        if (!ksu_access_ok(arg1, sizeof(kpm_name))) {
-             goto invalid_arg;
-@@ -229,2 +229,2 @@ noinline int sukisu_handle_kpm(unsigned long control_code, unsigned long arg1,
--        if (!access_ok(arg2, sizeof(kpm_args))) {
-+        if (!ksu_access_ok(arg2, sizeof(kpm_args))) {
-             goto invalid_arg;
-@@ -289,2 +289,2 @@ int do_kpm(void __user *arg)
--    if (!access_ok(cmd.control_code, sizeof(int))) {
-+    if (!ksu_access_ok(cmd.control_code, sizeof(int))) {
-         pr_err("kpm: invalid control_code pointer %px\n",
-@@ -295,2 +295,2 @@ int do_kpm(void __user *arg)
--    if (!access_ok(cmd.result_code, sizeof(int))) {
-+    if (!ksu_access_ok(cmd.result_code, sizeof(int))) {
-         pr_err("kpm: invalid result_code pointer %px\n",
-diff --git a/kernel/manager/apk_sign.c b/kernel/manager/apk_sign.c
---- a/kernel/manager/apk_sign.c
-+++ b/kernel/manager/apk_sign.c
-@@ -32,6 +32,7 @@ static struct apk_sign_key {
-     unsigned size;
-     const char *sha256;
- } apk_sign_keys[] = {
-     { 0x35c, "947ae944f3de4ed4c21a7e4f7953ecf351bfa2b36239da37a34111ad29993eef" }, // SukiSU
-+    { 0x377, "d3469712b6214462764a1d8d3e5cbe1d6819a0b629791b9f4101867821f1df64" }, // ReSukiSU
-     { 0x396, "f415f4ed9435427e1fdf7f1fccd4dbc07b3d6b8751e4dbcec6f19671f427870b" }, // RKSU
-     { 0x033b, "c371061b19d8c7d7d6133c6a9bafe198fa944e50c1b31c9d8daa8d7f1fc2d2d6" }, // KSU
-     { 0x381, "52d52d8c8bfbe53dc2b6ff1c613184e2c03013e090fe8905d8e3d5dc2658c2e4" }, // WKSU
-
++config KSU_BOOT_DEBUG
++	bool "KernelSU early boot policy trace"
++	depends on KSU
++	default n
++	help
++	  Emit a small, pstore-friendly trace around early SELinux policy updates.
++	  This does not enable the KernelSU init shell.
++
+ config KPM
 diff --git a/kernel/hook/lsm_hook.c b/kernel/hook/lsm_hook.c
+index 0070283..43ab80d 100644
 --- a/kernel/hook/lsm_hook.c
 +++ b/kernel/hook/lsm_hook.c
-@@ -80,5 +80,30 @@ do_umount:
-     return 0;
+@@ -81,2 +81,27 @@ do_umount:
  }
 +
 +/*
@@ -140,14 +45,880 @@ diff --git a/kernel/hook/lsm_hook.c b/kernel/hook/lsm_hook.c
 +    return 0;
 +}
  #else
- static int ksu_task_fix_setuid(struct cred *new, const struct cred *old, int flags)
- {
-@@ -112,8 +137,6 @@ static struct security_hook_list ksu_hooks[] = {
- #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 10, 0) || defined(CONFIG_IS_HW_HISI) ||                                     \
-     defined(CONFIG_KSU_ALLOWLIST_WORKAROUND)
-     LSM_HOOK_INIT(key_permission, ksu_key_permission),
+@@ -115,5 +140,3 @@ static struct security_hook_list ksu_hooks[] = {
  #endif
 -#ifndef CONFIG_KSU_SUSFS
      LSM_HOOK_INIT(task_fix_setuid, ksu_task_fix_setuid),
 -#endif
  };
+diff --git a/kernel/kpm/kpm.c b/kernel/kpm/kpm.c
+index c96106b..03e3176 100644
+--- a/kernel/kpm/kpm.c
++++ b/kernel/kpm/kpm.c
+@@ -134,3 +134,3 @@ noinline int sukisu_handle_kpm(unsigned long control_code, unsigned long arg1,
+
+-        if (!access_ok(arg1, 255)) {
++        if (!ksu_access_ok(arg1, 255)) {
+             goto invalid_arg;
+@@ -141,3 +141,3 @@ noinline int sukisu_handle_kpm(unsigned long control_code, unsigned long arg1,
+         if (arg2 != 0) {
+-            if (!access_ok(arg2, 255)) {
++            if (!ksu_access_ok(arg2, 255)) {
+                 goto invalid_arg;
+@@ -160,3 +160,3 @@ noinline int sukisu_handle_kpm(unsigned long control_code, unsigned long arg1,
+
+-        if (!access_ok(arg1, sizeof(kernel_name_buffer))) {
++        if (!ksu_access_ok(arg1, sizeof(kernel_name_buffer))) {
+             goto invalid_arg;
+@@ -180,3 +180,3 @@ noinline int sukisu_handle_kpm(unsigned long control_code, unsigned long arg1,
+
+-        if (!access_ok(arg1, sizeof(kernel_name_buffer))) {
++        if (!ksu_access_ok(arg1, sizeof(kernel_name_buffer))) {
+             goto invalid_arg;
+@@ -191,3 +191,3 @@ noinline int sukisu_handle_kpm(unsigned long control_code, unsigned long arg1,
+
+-        if (!access_ok(arg2, size)) {
++        if (!ksu_access_ok(arg2, size)) {
+             goto invalid_arg;
+@@ -206,3 +206,3 @@ noinline int sukisu_handle_kpm(unsigned long control_code, unsigned long arg1,
+
+-        if (!access_ok(arg2, len)) {
++        if (!ksu_access_ok(arg2, len)) {
+             goto invalid_arg;
+@@ -224,3 +224,3 @@ noinline int sukisu_handle_kpm(unsigned long control_code, unsigned long arg1,
+
+-        if (!access_ok(arg1, sizeof(kpm_name))) {
++        if (!ksu_access_ok(arg1, sizeof(kpm_name))) {
+             goto invalid_arg;
+@@ -228,3 +228,3 @@ noinline int sukisu_handle_kpm(unsigned long control_code, unsigned long arg1,
+
+-        if (!access_ok(arg2, sizeof(kpm_args))) {
++        if (!ksu_access_ok(arg2, sizeof(kpm_args))) {
+             goto invalid_arg;
+@@ -288,3 +288,3 @@ int do_kpm(void __user *arg)
+
+-    if (!access_ok(cmd.control_code, sizeof(int))) {
++    if (!ksu_access_ok(cmd.control_code, sizeof(int))) {
+         pr_err("kpm: invalid control_code pointer %px\n",
+@@ -294,3 +294,3 @@ int do_kpm(void __user *arg)
+
+-    if (!access_ok(cmd.result_code, sizeof(int))) {
++    if (!ksu_access_ok(cmd.result_code, sizeof(int))) {
+         pr_err("kpm: invalid result_code pointer %px\n",
+diff --git a/kernel/policy/allowlist.c b/kernel/policy/allowlist.c
+index fa32ac1..51613c9 100644
+--- a/kernel/policy/allowlist.c
++++ b/kernel/policy/allowlist.c
+@@ -450,3 +450,3 @@ static void migrate_profile(u32 version, struct app_profile *profile)
+         }
+-        fallthrough;
++        /* fall through */
+     case 3:
+diff --git a/kernel/runtime/ksud.c b/kernel/runtime/ksud.c
+index eed56f9..c3808d8 100644
+--- a/kernel/runtime/ksud.c
++++ b/kernel/runtime/ksud.c
+@@ -56,3 +56,5 @@ void on_post_fs_data(void)
+     stop_input_hook();
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
+     ksu_selinux_hide_handle_post_fs_data();
++#endif
+ }
+@@ -218,3 +220,6 @@ int ksu_handle_execveat_ksud(int *fd, struct filename **filename_ptr,
+                 pr_info("/system/bin/init second_stage executed\n");
++                ksu_boottrace("second_stage_enter");
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
+                 ksu_selinux_hide_handle_second_stage();
++#endif
+                 apply_kernelsu_rules();
+@@ -222,2 +227,3 @@ int ksu_handle_execveat_ksud(int *fd, struct filename **filename_ptr,
+                 setup_ksu_cred();
++                ksu_boottrace("second_stage_done");
+ #ifdef KSU_COMPAT_USE_STATIC_KEY
+@@ -290,3 +296,6 @@ int ksu_handle_execveat_ksud(int *fd, struct filename **filename_ptr, struct use
+             pr_info("/system/bin/init second_stage executed\n");
++            ksu_boottrace("second_stage_enter");
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
+             ksu_selinux_hide_handle_second_stage();
++#endif
+             apply_kernelsu_rules();
+@@ -294,2 +303,3 @@ int ksu_handle_execveat_ksud(int *fd, struct filename **filename_ptr, struct use
+             setup_ksu_cred();
++            ksu_boottrace("second_stage_done");
+             init_second_stage_executed = true;
+@@ -331,2 +341,3 @@ int ksu_handle_execveat_ksud(int *fd, struct filename **filename_ptr, struct use
+                         pr_info("ksud: /init second_stage executed\n");
++                        ksu_boottrace("second_stage_enter");
+                         apply_kernelsu_rules();
+@@ -334,2 +345,3 @@ int ksu_handle_execveat_ksud(int *fd, struct filename **filename_ptr, struct use
+                         setup_ksu_cred();
++                        ksu_boottrace("second_stage_done");
+                         init_second_stage_executed = true;
+diff --git a/kernel/selinux/rules.c b/kernel/selinux/rules.c
+index f8a33fa..8815fdf 100644
+--- a/kernel/selinux/rules.c
++++ b/kernel/selinux/rules.c
+@@ -15,2 +15,3 @@ static void reset_avc_cache(void)
+ {
++    ksu_boottrace("avc_reset_begin");
+ #if ((!defined(KSU_COMPAT_USE_SELINUX_STATE)) || LINUX_VERSION_CODE >= KERNEL_VERSION(6, 4, 0))
+@@ -26,2 +27,3 @@ static void reset_avc_cache(void)
+     selinux_xfrm_notify_policyload();
++    ksu_boottrace("avc_reset_done");
+ }
+@@ -61,15 +63,209 @@ static inline rwlock_t *ksu_get_policy_rwlock(void)
+
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 2, 0) || defined(KSU_COMPAT_HAS_BACKPORTED_CPUS_PTR)
+-static inline cpumask_t *ksu_get_current_cpumask_t(void)
++#endif // < 5.10
++
++#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
++
++struct ksu_legacy_policy_snapshot {
++    void *data;
++    size_t data_len;
++    size_t policy_len;
++    size_t generation;
++    int android_netlink_route;
++    int android_netlink_getneigh;
++};
++
++static size_t ksu_legacy_policy_generation(struct policydb *db)
+ {
+-    return (cpumask_t *)current->cpus_ptr;
+-}
++#if defined(KSU_COMPAT_USE_SELINUX_STATE)
++    return selinux_state.ss->latest_granting;
+ #else
+-static inline cpumask_t *ksu_get_current_cpumask_t(void)
++    return db->len;
++#endif
++}
++
++struct ksu_legacy_serialized_policy {
++    void *data;
++    size_t len;
++    size_t generation;
++    int android_netlink_route;
++    int android_netlink_getneigh;
++};
++
++/* policydb->len is the loaded input length, not necessarily the output size. */
++static int ksu_legacy_serialize_policy(struct policydb *db, rwlock_t *lock,
++                                       size_t min_len,
++                                       struct ksu_legacy_serialized_policy *serialized)
++{
++    struct policy_file fp;
++    unsigned long flags;
++    size_t alloc_len;
++    void *data;
++    int ret;
++
++    memset(serialized, 0, sizeof(*serialized));
++
++    if (lock) {
++        read_lock_irqsave(lock, flags);
++        if (db->len > min_len)
++            min_len = db->len;
++        read_unlock_irqrestore(lock, flags);
++    } else if (db->len > min_len) {
++        min_len = db->len;
++    }
++
++    alloc_len = max_t(size_t, min_len, PAGE_SIZE);
++    for (;;) {
++        data = vmalloc(alloc_len);
++        if (!data)
++            return -ENOMEM;
++
++        if (lock)
++            read_lock_irqsave(lock, flags);
++
++        fp.data = data;
++        fp.len = alloc_len;
++        ret = policydb_write(db, &fp);
++        if (!ret) {
++            serialized->data = data;
++            serialized->len = alloc_len - fp.len;
++            if (lock)
++                serialized->generation = ksu_legacy_policy_generation(db);
++            else
++                serialized->generation = db->len;
++            serialized->android_netlink_route = db->android_netlink_route;
++            serialized->android_netlink_getneigh = db->android_netlink_getneigh;
++        }
++
++        if (lock)
++            read_unlock_irqrestore(lock, flags);
++
++        if (!ret)
++            return 0;
++
++        vfree(data);
++        if (ret != -EINVAL || fp.len == alloc_len)
++            return ret;
++        if (alloc_len > SIZE_MAX / 2)
++            return -E2BIG;
++        alloc_len *= 2;
++    }
++}
++
++static int ksu_legacy_take_policy_snapshot(struct ksu_legacy_policy_snapshot *snapshot)
++{
++    struct policydb *db = get_policydb();
++    rwlock_t *lock = ksu_get_policy_rwlock();
++    struct ksu_legacy_serialized_policy serialized;
++    int ret;
++
++    if (!lock) {
++        pr_err("%s: policy lock is unavailable\n", __func__);
++        return -ENOTSUPP;
++    }
++
++    ret = ksu_legacy_serialize_policy(db, lock, 0, &serialized);
++    if (ret)
++        return ret;
++
++    snapshot->data = serialized.data;
++    snapshot->data_len = serialized.len;
++    snapshot->policy_len = serialized.len;
++    snapshot->generation = serialized.generation;
++    snapshot->android_netlink_route = serialized.android_netlink_route;
++    snapshot->android_netlink_getneigh = serialized.android_netlink_getneigh;
++    return 0;
++}
++
++static void ksu_legacy_drop_policy(struct policydb *db)
++{
++    if (!db)
++        return;
++    policydb_destroy(db);
++    kfree(db);
++}
++
++static int ksu_legacy_clone_policy(const struct ksu_legacy_policy_snapshot *snapshot,
++                                   struct policydb **out)
++{
++    struct policydb *db;
++    struct policy_file fp;
++    int ret;
++
++    db = kzalloc(sizeof(*db), GFP_KERNEL);
++    if (!db)
++        return -ENOMEM;
++
++    fp.data = snapshot->data;
++    fp.len = snapshot->data_len;
++    ret = policydb_read(db, &fp);
++    if (ret) {
++        /* policydb_read() destroys its partially initialized database. */
++        kfree(db);
++        return ret;
++    }
++
++    db->len = snapshot->policy_len;
++    db->android_netlink_route = snapshot->android_netlink_route;
++    db->android_netlink_getneigh = snapshot->android_netlink_getneigh;
++    *out = db;
++    return 0;
++}
++
++static int ksu_legacy_refresh_policy_len(struct policydb *db)
+ {
+-    return &current->cpus_allowed;
++    struct ksu_legacy_serialized_policy serialized;
++    int ret;
++
++    ret = ksu_legacy_serialize_policy(db, NULL, db->len, &serialized);
++    if (ret)
++        return ret;
++
++    db->len = serialized.len;
++    vfree(serialized.data);
++    return 0;
+ }
++
++static int ksu_legacy_install_policy(struct policydb *new_db,
++                                     const struct ksu_legacy_policy_snapshot *snapshot)
++{
++    struct policydb *old_db = get_policydb();
++    rwlock_t *lock = ksu_get_policy_rwlock();
++    struct policydb old_copy;
++    unsigned long flags;
++
++    if (!lock)
++        return -ENOTSUPP;
++
++    ksu_boottrace("policy_lock_before");
++    write_lock_irqsave(lock, flags);
++    ksu_boottrace("policy_lock_acquired");
++    if (ksu_legacy_policy_generation(old_db) != snapshot->generation) {
++        ksu_boottrace("policy_lock_conflict");
++        write_unlock_irqrestore(lock, flags);
++        ksu_boottrace("policy_unlock_done");
++        return -EAGAIN;
++    }
++
++    memcpy(&old_copy, old_db, sizeof(old_copy));
++    memcpy(old_db, new_db, sizeof(*old_db));
++#if defined(KSU_COMPAT_USE_SELINUX_STATE)
++    selinux_state.ss->latest_granting++;
++    selinux_state.android_netlink_route = old_db->android_netlink_route;
++    selinux_state.android_netlink_getneigh = old_db->android_netlink_getneigh;
+ #endif
++    memset(new_db, 0, sizeof(*new_db));
++    write_unlock_irqrestore(lock, flags);
++    ksu_boottrace("policy_unlock_done");
+
+-#endif // < 5.10
++    policydb_destroy(&old_copy);
++    return 0;
++}
++
++#endif
++
++#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
++#define KSU_RULE(expr) do { if (!(expr)) return -EINVAL; } while (0)
++#else
++#define KSU_RULE(expr) do { (void)(expr); } while (0)
++#endif
+
+@@ -79,15 +275,15 @@ static int apply_kernelsu_rules_fn(void *ptr)
+
+-    ksu_type(db, KERNEL_SU_DOMAIN, "domain");
+-    ksu_permissive(db, KERNEL_SU_DOMAIN);
+-    ksu_typeattribute(db, KERNEL_SU_DOMAIN, "mlstrustedsubject");
+-    ksu_typeattribute(db, KERNEL_SU_DOMAIN, "netdomain");
+-    ksu_typeattribute(db, KERNEL_SU_DOMAIN, "bluetoothdomain");
++    KSU_RULE(ksu_type(db, KERNEL_SU_DOMAIN, "domain"));
++    KSU_RULE(ksu_permissive(db, KERNEL_SU_DOMAIN));
++    KSU_RULE(ksu_typeattribute(db, KERNEL_SU_DOMAIN, "mlstrustedsubject"));
++    KSU_RULE(ksu_typeattribute(db, KERNEL_SU_DOMAIN, "netdomain"));
++    KSU_RULE(ksu_typeattribute(db, KERNEL_SU_DOMAIN, "bluetoothdomain"));
+
+     // Create unconstrained file type
+-    ksu_type(db, KERNEL_SU_FILE, "file_type");
+-    ksu_typeattribute(db, KERNEL_SU_FILE, "mlstrustedobject");
+-    ksu_allow(db, "domain", KERNEL_SU_FILE, ALL, ALL);
++    KSU_RULE(ksu_type(db, KERNEL_SU_FILE, "file_type"));
++    KSU_RULE(ksu_typeattribute(db, KERNEL_SU_FILE, "mlstrustedobject"));
++    KSU_RULE(ksu_allow(db, "domain", KERNEL_SU_FILE, ALL, ALL));
+
+     // allow all!
+-    ksu_allow(db, KERNEL_SU_DOMAIN, ALL, ALL, ALL);
++    KSU_RULE(ksu_allow(db, KERNEL_SU_DOMAIN, ALL, ALL, ALL));
+
+@@ -95,6 +291,6 @@ static int apply_kernelsu_rules_fn(void *ptr)
+     if (db->policyvers >= POLICYDB_VERSION_XPERMS_IOCTL) {
+-        ksu_allowxperm(db, KERNEL_SU_DOMAIN, ALL, "blk_file", ALL);
+-        ksu_allowxperm(db, KERNEL_SU_DOMAIN, ALL, "fifo_file", ALL);
+-        ksu_allowxperm(db, KERNEL_SU_DOMAIN, ALL, "chr_file", ALL);
+-        ksu_allowxperm(db, KERNEL_SU_DOMAIN, ALL, "file", ALL);
++        KSU_RULE(ksu_allowxperm(db, KERNEL_SU_DOMAIN, ALL, "blk_file", ALL));
++        KSU_RULE(ksu_allowxperm(db, KERNEL_SU_DOMAIN, ALL, "fifo_file", ALL));
++        KSU_RULE(ksu_allowxperm(db, KERNEL_SU_DOMAIN, ALL, "chr_file", ALL));
++        KSU_RULE(ksu_allowxperm(db, KERNEL_SU_DOMAIN, ALL, "file", ALL));
+     }
+@@ -102,7 +298,7 @@ static int apply_kernelsu_rules_fn(void *ptr)
+     // our ksud triggered by init
+-    ksu_allow(db, "init", KERNEL_SU_DOMAIN, ALL, ALL);
++    KSU_RULE(ksu_allow(db, "init", KERNEL_SU_DOMAIN, ALL, ALL));
+
+     // restored from https://github.com/tiann/KernelSU/pull/3031
+-    ksu_allow(db, "init", "adb_data_file", "file", ALL);
+-    ksu_allow(db, "init", "adb_data_file", "dir", ALL); // #1289
++    KSU_RULE(ksu_allow(db, "init", "adb_data_file", "file", ALL));
++    KSU_RULE(ksu_allow(db, "init", "adb_data_file", "dir", ALL)); // #1289
+
+@@ -110,39 +306,39 @@ static int apply_kernelsu_rules_fn(void *ptr)
+     // suRights
+-    ksu_allow(db, "servicemanager", KERNEL_SU_DOMAIN, "dir", "search");
+-    ksu_allow(db, "servicemanager", KERNEL_SU_DOMAIN, "dir", "read");
+-    ksu_allow(db, "servicemanager", KERNEL_SU_DOMAIN, "file", "open");
+-    ksu_allow(db, "servicemanager", KERNEL_SU_DOMAIN, "file", "read");
+-    ksu_allow(db, "servicemanager", KERNEL_SU_DOMAIN, "process", "getattr");
+-    ksu_allow(db, "domain", KERNEL_SU_DOMAIN, "process", "sigchld");
++    KSU_RULE(ksu_allow(db, "servicemanager", KERNEL_SU_DOMAIN, "dir", "search"));
++    KSU_RULE(ksu_allow(db, "servicemanager", KERNEL_SU_DOMAIN, "dir", "read"));
++    KSU_RULE(ksu_allow(db, "servicemanager", KERNEL_SU_DOMAIN, "file", "open"));
++    KSU_RULE(ksu_allow(db, "servicemanager", KERNEL_SU_DOMAIN, "file", "read"));
++    KSU_RULE(ksu_allow(db, "servicemanager", KERNEL_SU_DOMAIN, "process", "getattr"));
++    KSU_RULE(ksu_allow(db, "domain", KERNEL_SU_DOMAIN, "process", "sigchld"));
+
+     // allowLog
+-    ksu_allow(db, "logd", KERNEL_SU_DOMAIN, "dir", "search");
+-    ksu_allow(db, "logd", KERNEL_SU_DOMAIN, "file", "read");
+-    ksu_allow(db, "logd", KERNEL_SU_DOMAIN, "file", "open");
+-    ksu_allow(db, "logd", KERNEL_SU_DOMAIN, "file", "getattr");
++    KSU_RULE(ksu_allow(db, "logd", KERNEL_SU_DOMAIN, "dir", "search"));
++    KSU_RULE(ksu_allow(db, "logd", KERNEL_SU_DOMAIN, "file", "read"));
++    KSU_RULE(ksu_allow(db, "logd", KERNEL_SU_DOMAIN, "file", "open"));
++    KSU_RULE(ksu_allow(db, "logd", KERNEL_SU_DOMAIN, "file", "getattr"));
+
+     // dumpsys, send fd
+-    ksu_allow(db, "domain", KERNEL_SU_DOMAIN, "fd", "use");
+-    ksu_allow(db, "domain", KERNEL_SU_DOMAIN, "fifo_file", "write");
+-    ksu_allow(db, "domain", KERNEL_SU_DOMAIN, "fifo_file", "read");
+-    ksu_allow(db, "domain", KERNEL_SU_DOMAIN, "fifo_file", "open");
+-    ksu_allow(db, "domain", KERNEL_SU_DOMAIN, "fifo_file", "getattr");
+-    ksu_allow(db, "domain", KERNEL_SU_DOMAIN, "unix_stream_socket", "read");
+-    ksu_allow(db, "domain", KERNEL_SU_DOMAIN, "unix_stream_socket", "write");
+-    ksu_allow(db, "domain", KERNEL_SU_DOMAIN, "unix_stream_socket", "connectto");
+-    ksu_allow(db, "domain", KERNEL_SU_DOMAIN, "unix_stream_socket", "getopt");
+-    ksu_allow(db, "domain", KERNEL_SU_DOMAIN, "unix_stream_socket", "getattr");
++    KSU_RULE(ksu_allow(db, "domain", KERNEL_SU_DOMAIN, "fd", "use"));
++    KSU_RULE(ksu_allow(db, "domain", KERNEL_SU_DOMAIN, "fifo_file", "write"));
++    KSU_RULE(ksu_allow(db, "domain", KERNEL_SU_DOMAIN, "fifo_file", "read"));
++    KSU_RULE(ksu_allow(db, "domain", KERNEL_SU_DOMAIN, "fifo_file", "open"));
++    KSU_RULE(ksu_allow(db, "domain", KERNEL_SU_DOMAIN, "fifo_file", "getattr"));
++    KSU_RULE(ksu_allow(db, "domain", KERNEL_SU_DOMAIN, "unix_stream_socket", "read"));
++    KSU_RULE(ksu_allow(db, "domain", KERNEL_SU_DOMAIN, "unix_stream_socket", "write"));
++    KSU_RULE(ksu_allow(db, "domain", KERNEL_SU_DOMAIN, "unix_stream_socket", "connectto"));
++    KSU_RULE(ksu_allow(db, "domain", KERNEL_SU_DOMAIN, "unix_stream_socket", "getopt"));
++    KSU_RULE(ksu_allow(db, "domain", KERNEL_SU_DOMAIN, "unix_stream_socket", "getattr"));
+
+     // bootctl
+-    ksu_allow(db, "hwservicemanager", KERNEL_SU_DOMAIN, "dir", "search");
+-    ksu_allow(db, "hwservicemanager", KERNEL_SU_DOMAIN, "file", "read");
+-    ksu_allow(db, "hwservicemanager", KERNEL_SU_DOMAIN, "file", "open");
+-    ksu_allow(db, "hwservicemanager", KERNEL_SU_DOMAIN, "process", "getattr");
++    KSU_RULE(ksu_allow(db, "hwservicemanager", KERNEL_SU_DOMAIN, "dir", "search"));
++    KSU_RULE(ksu_allow(db, "hwservicemanager", KERNEL_SU_DOMAIN, "file", "read"));
++    KSU_RULE(ksu_allow(db, "hwservicemanager", KERNEL_SU_DOMAIN, "file", "open"));
++    KSU_RULE(ksu_allow(db, "hwservicemanager", KERNEL_SU_DOMAIN, "process", "getattr"));
+
+     // Allow all binder transactions
+-    ksu_allow(db, "domain", KERNEL_SU_DOMAIN, "binder", ALL);
++    KSU_RULE(ksu_allow(db, "domain", KERNEL_SU_DOMAIN, "binder", ALL));
+
+     // Allow system server kill su process
+-    ksu_allow(db, "system_server", KERNEL_SU_DOMAIN, "process", "getpgid");
+-    ksu_allow(db, "system_server", KERNEL_SU_DOMAIN, "process", "sigkill");
++    KSU_RULE(ksu_allow(db, "system_server", KERNEL_SU_DOMAIN, "process", "getpgid"));
++    KSU_RULE(ksu_allow(db, "system_server", KERNEL_SU_DOMAIN, "process", "sigkill"));
+
+@@ -151,2 +347,4 @@ static int apply_kernelsu_rules_fn(void *ptr)
+
++#undef KSU_RULE
++
+ void apply_kernelsu_rules(void)
+@@ -154,2 +352,5 @@ void apply_kernelsu_rules(void)
+     struct policydb *db;
++    int ret = 0;
++
++    ksu_boottrace("rules_begin");
+
+@@ -192,3 +393,8 @@ void apply_kernelsu_rules(void)
+
+-    apply_kernelsu_rules_fn((void *)db);
++    ret = apply_kernelsu_rules_fn((void *)db);
++    if (ret) {
++        pr_err("failed to apply KernelSU rules: %d\n", ret);
++        ksu_destroy_sepolicy(pol);
++        goto out_unlock;
++    }
+
+@@ -206,53 +412,68 @@ out_unlock:
+
+-    cpumask_t old_mask;
+-    db = get_policydb();
++    struct ksu_legacy_policy_snapshot snapshot;
++    struct policydb *new_db = NULL;
++    int attempt;
+
+-    rwlock_t *lock = ksu_get_policy_rwlock();
+-    if (!lock)
+-        goto do_stop_machine;
+-
+-    /*
+-	 * HACK: write_lock() is held with preempt enabled. DO NOT let the
+-	 * task be migrated to any other CPU than the current CPU. And since
+-	 * set_cpus_allowed_ptr() can sleep, use raw_smp_processor_id() to get
+-	 * current CPU and bypass preemption checks.
+-	 */
+-    cpumask_copy(&old_mask, ksu_get_current_cpumask_t());
+-    set_cpus_allowed_ptr(current, cpumask_of(raw_smp_processor_id()));
+-
+-    pr_info("%s: type: policy_rwlock \n", __func__);
+-    write_lock(lock);
+-    preempt_enable();
+-
+-    // we do this dance since both kernel and userspace can trigger this
+-    if (likely(current && current->mm))
+-        goto has_current_mm;
+-
+-    apply_kernelsu_rules_fn((void *)db);
+-    goto out_unlock;
++    if (!ksu_get_policy_rwlock()) {
++        ret = -ENOTSUPP;
++        pr_err("%s: policy lock is unavailable; refusing unsafe apply\n", __func__);
++        goto out;
++    }
+
+-has_current_mm:;
+-    // HACK: raise priority of this to the heavens
+-    int old_policy = current->policy;
+-    struct sched_param old_param = { .sched_priority = current->rt_priority };
+-    struct sched_param new_param = { .sched_priority = 50 };
++    for (attempt = 0; attempt < 2; attempt++) {
++        ksu_boottrace("policy_clone_begin");
++        ret = ksu_legacy_take_policy_snapshot(&snapshot);
++        if (ret)
++            goto out;
+
+-    sched_setscheduler_nocheck(current, 1, &new_param); // raise, fifo, 50
+-    apply_kernelsu_rules_fn((void *)db);
+-    sched_setscheduler_nocheck(current, old_policy, &old_param); // restore
++        ret = ksu_legacy_clone_policy(&snapshot, &new_db);
++        vfree(snapshot.data);
++        snapshot.data = NULL;
++        if (ret)
++            goto out;
++        ksu_boottrace("policy_clone_done");
+
+-out_unlock:
+-    preempt_disable();
+-    write_unlock(lock);
+-    set_cpus_allowed_ptr(current, &old_mask);
+-    goto out_flush;
++        ret = apply_kernelsu_rules_fn((void *)new_db);
++        if (ret) {
++            pr_err("failed to apply KernelSU rules: %d\n", ret);
++            ksu_legacy_drop_policy(new_db);
++            new_db = NULL;
++            goto out;
++        }
+
+-do_stop_machine:
+-    pr_info("%s: type: stop_machine()\n", __func__);
+-    stop_machine(apply_kernelsu_rules_fn, (void *)db, NULL);
++        ret = ksu_legacy_refresh_policy_len(new_db);
++        if (ret) {
++            pr_err("failed to serialize KernelSU policy: %d\n", ret);
++            ksu_legacy_drop_policy(new_db);
++            new_db = NULL;
++            goto out;
++        }
+
+-out_flush:
+-    smp_mb();
+-    reset_avc_cache();
++        ret = ksu_legacy_install_policy(new_db, &snapshot);
++        if (ret == -EAGAIN && attempt == 0) {
++            ksu_legacy_drop_policy(new_db);
++            new_db = NULL;
++            continue;
++        }
++        if (ret)
++            goto out;
++
++        new_db = NULL;
++        smp_mb();
++        reset_avc_cache();
++#ifdef CONFIG_KSU_SUSFS
++        susfs_set_batch_sid();
++#endif
++        goto out;
++    }
++
++    ret = -EAGAIN;
++    pr_err("%s: policy changed during both apply attempts\n", __func__);
++
++out:
++    if (new_db)
++        ksu_legacy_drop_policy(new_db);
+ #endif
++
++    ksu_boottrace("rules_done ret=%d", ret);
+ }
+@@ -630,2 +851,3 @@ out_free:
+ struct handle_sepolicy_args {
++    struct policydb *db;
+     void *ctx_success_cmd_count;
+@@ -642,4 +864,4 @@ static int handle_sepolicy_fn(void *data)
+
+-    struct policydb *db = get_policydb();
+     struct handle_sepolicy_args *ctx = (struct handle_sepolicy_args *)data;
++    struct policydb *db = ctx->db;
+     u8 *payload = (u8 *)ctx->ctx_payload;
+@@ -678,5 +900,6 @@ static int handle_sepolicy_fn(void *data)
+         ret = apply_one_sepolicy_cmd(db, &header, args);
+-        if (ret < 0)
++        if (ret < 0) {
+             pr_err("sepol: cmd #%u failed, cmd=%u subcmd=%u.\n", cmd_index, header.cmd, header.subcmd);
+-        else {
++            goto out;
++        } else {
+             pr_info("sepol: cmd #%u success, cmd=%u subcmd=%u.\n", cmd_index, header.cmd, header.subcmd);
+@@ -698,3 +921,3 @@ int handle_sepolicy(void __user *user_data, u64 data_len)
+     int success_cmd_count = 0;
+-    cpumask_t old_mask;
++    int attempt;
+
+@@ -720,2 +943,3 @@ int handle_sepolicy(void __user *user_data, u64 data_len)
+     struct handle_sepolicy_args ctx = { 0 };
++    ctx.db = NULL;
+     ctx.ctx_success_cmd_count = (void *)&success_cmd_count;
+@@ -724,51 +948,63 @@ int handle_sepolicy(void __user *user_data, u64 data_len)
+
+-    rwlock_t *lock = ksu_get_policy_rwlock();
+-    if (!lock)
+-        goto do_stop_machine;
+-
+-    /*
+-	 * HACK: write_lock() is held with preempt enabled. DO NOT let the
+-	 * task be migrated to any other CPU than the current CPU. And since
+-	 * set_cpus_allowed_ptr() can sleep, use raw_smp_processor_id() to get
+-	 * current CPU and bypass preemption checks.
+-	 */
+-    cpumask_copy(&old_mask, ksu_get_current_cpumask_t());
+-    set_cpus_allowed_ptr(current, cpumask_of(raw_smp_processor_id()));
+-
+-    write_lock(lock);
+-    preempt_enable();
++    if (!ksu_get_policy_rwlock()) {
++        ret = -ENOTSUPP;
++        pr_err("%s: policy lock is unavailable; refusing unsafe apply\n", __func__);
++        goto out_free;
++    }
+
+-    if (likely(current && current->mm))
+-        goto has_current_mm;
++    for (attempt = 0; attempt < 2; attempt++) {
++        struct ksu_legacy_policy_snapshot snapshot;
+
+-    ret = handle_sepolicy_fn((void *)&ctx);
+-    goto out_unlock;
++        ksu_boottrace("policy_clone_begin");
++        ret = ksu_legacy_take_policy_snapshot(&snapshot);
++        if (ret)
++            goto out_free;
+
+-has_current_mm:;
+-    int old_policy = current->policy;
+-    struct sched_param old_param = { .sched_priority = current->rt_priority };
+-    struct sched_param new_param = { .sched_priority = 50 };
++        ret = ksu_legacy_clone_policy(&snapshot, &ctx.db);
++        vfree(snapshot.data);
++        snapshot.data = NULL;
++        if (ret)
++            goto out_free;
++        ksu_boottrace("policy_clone_done");
+
+-    sched_setscheduler_nocheck(current, 1, &new_param);
+-    ret = handle_sepolicy_fn((void *)&ctx);
+-    sched_setscheduler_nocheck(current, old_policy, &old_param);
++        ret = handle_sepolicy_fn((void *)&ctx);
++        if (ret) {
++            ksu_legacy_drop_policy(ctx.db);
++            ctx.db = NULL;
++            goto out_free;
++        }
+
+-out_unlock:
+-    preempt_disable();
+-    write_unlock(lock);
+-    set_cpus_allowed_ptr(current, &old_mask);
+-    goto out_done;
++        ret = ksu_legacy_refresh_policy_len(ctx.db);
++        if (ret) {
++            pr_err("failed to serialize sepolicy: %d\n", ret);
++            ksu_legacy_drop_policy(ctx.db);
++            ctx.db = NULL;
++            goto out_free;
++        }
+
+-do_stop_machine:
+-    ret = stop_machine(handle_sepolicy_fn, (void *)&ctx, NULL);
++        ret = ksu_legacy_install_policy(ctx.db, &snapshot);
++        if (ret == -EAGAIN && attempt == 0) {
++            ksu_legacy_drop_policy(ctx.db);
++            ctx.db = NULL;
++            continue;
++        }
++        if (ret)
++            goto out_free;
+
+-out_done:
+-    if (ret)
++        ctx.db = NULL;
++        smp_mb();
++        reset_avc_cache();
++#ifdef CONFIG_KSU_SUSFS
++        susfs_set_batch_sid();
++#endif
++        ret = success_cmd_count;
+         goto out_free;
++    }
+
+-    smp_mb();
+-    reset_avc_cache();
+-    ret = success_cmd_count;
++    ret = -EAGAIN;
++    pr_err("%s: policy changed during both apply attempts\n", __func__);
+
+ out_free:
++    if (ctx.db)
++        ksu_legacy_drop_policy(ctx.db);
+     kvfree(payload);
+diff --git a/kernel/selinux/selinux.c b/kernel/selinux/selinux.c
+index 1f8fd0e..4c60f4e 100644
+--- a/kernel/selinux/selinux.c
++++ b/kernel/selinux/selinux.c
+@@ -134,2 +134,4 @@ void cache_sid(void)
+
++    ksu_boottrace("sid_begin");
++
+     err = security_secctx_to_secid(KERNEL_SU_CONTEXT, strlen(KERNEL_SU_CONTEXT), &cached_su_sid);
+@@ -165,2 +167,4 @@ void cache_sid(void)
+     }
++
++    ksu_boottrace("sid_done");
+ }
+@@ -318,3 +322,4 @@ void susfs_set_batch_sid(void)
+     susfs_set_sid(KERNEL_PRIV_APP_DOMAIN, &susfs_priv_app_sid);
++    ksu_boottrace("sid_done");
+ }
+-#endif
+\ No newline at end of file
++#endif
+diff --git a/kernel/selinux/selinux.h b/kernel/selinux/selinux.h
+index 011e03b..56684a3 100644
+--- a/kernel/selinux/selinux.h
++++ b/kernel/selinux/selinux.h
+@@ -15,2 +15,11 @@
+
++#ifdef CONFIG_KSU_BOOT_DEBUG
++#define ksu_boottrace(fmt, ...)                                                                    \
++	pr_info("ksu_boottrace pid=%d comm=%s raw_cpu=%u preempt_count=%x policy=%u rt_priority=%u " fmt, \
++		current->pid, current->comm, raw_smp_processor_id(), preempt_count(), current->policy, \
++		current->rt_priority, ##__VA_ARGS__)
++#else
++#define ksu_boottrace(...) do { } while (0)
++#endif
++
+ void setup_selinux(const char *, struct cred *);
+diff --git a/kernel/selinux/sepolicy.c b/kernel/selinux/sepolicy.c
+index 2934778..36fc0a0 100644
+--- a/kernel/selinux/sepolicy.c
++++ b/kernel/selinux/sepolicy.c
+@@ -19,3 +19,3 @@ static bool add_rule_raw(struct policydb *db, struct type_datum *src, struct typ
+
+-static void add_xperm_rule_raw(struct policydb *db, struct type_datum *src, struct type_datum *tgt,
++static bool add_xperm_rule_raw(struct policydb *db, struct type_datum *src, struct type_datum *tgt,
+                                struct class_datum *cls, uint16_t low, uint16_t high, int effect, bool invert);
+@@ -35,3 +35,3 @@ static bool set_type_state(struct policydb *db, const char *type_name, bool perm
+
+-static void add_typeattribute_raw(struct policydb *db, struct type_datum *type, struct type_datum *attr);
++static bool add_typeattribute_raw(struct policydb *db, struct type_datum *type, struct type_datum *attr);
+
+@@ -342,5 +342,7 @@ static bool add_rule_raw(struct policydb *db, struct type_datum *src, struct typ
+
+-static void add_xperm_rule_raw(struct policydb *db, struct type_datum *src, struct type_datum *tgt,
++static bool add_xperm_rule_raw(struct policydb *db, struct type_datum *src, struct type_datum *tgt,
+                                struct class_datum *cls, uint16_t low, uint16_t high, int effect, bool invert)
+ {
++    bool success = true;
++
+     if (src == NULL) {
+@@ -351,3 +353,3 @@ static void add_xperm_rule_raw(struct policydb *db, struct type_datum *src, stru
+             if (type->attribute) {
+-                add_xperm_rule_raw(db, type, tgt, cls, low, high, effect, invert);
++                success &= add_xperm_rule_raw(db, type, tgt, cls, low, high, effect, invert);
+             }
+@@ -360,3 +362,3 @@ static void add_xperm_rule_raw(struct policydb *db, struct type_datum *src, stru
+             if (type->attribute) {
+-                add_xperm_rule_raw(db, src, type, cls, low, high, effect, invert);
++                success &= add_xperm_rule_raw(db, src, type, cls, low, high, effect, invert);
+             }
+@@ -367,3 +369,3 @@ static void add_xperm_rule_raw(struct policydb *db, struct type_datum *src, stru
+         {
+-            add_xperm_rule_raw(db, src, tgt, (struct class_datum *)(node->datum), low, high, effect, invert);
++            success &= add_xperm_rule_raw(db, src, tgt, (struct class_datum *)(node->datum), low, high, effect, invert);
+         };
+@@ -408,3 +410,3 @@ static void add_xperm_rule_raw(struct policydb *db, struct type_datum *src, stru
+             pr_warn("add_xperm_rule_raw cannot found node!\n");
+-            return;
++            return false;
+         }
+@@ -416,3 +418,3 @@ static void add_xperm_rule_raw(struct policydb *db, struct type_datum *src, stru
+                 pr_err("alloc xperms failed\n");
+-                return;
++                return false;
+             }
+@@ -421,2 +423,4 @@ static void add_xperm_rule_raw(struct policydb *db, struct type_datum *src, stru
+     }
++
++    return success;
+ }
+@@ -467,4 +471,3 @@ static bool add_xperm_rule(struct policydb *db, const char *s, const char *t, co
+
+-    add_xperm_rule_raw(db, src, tgt, cls, low, high, effect, invert);
+-    return true;
++    return add_xperm_rule_raw(db, src, tgt, cls, low, high, effect, invert);
+ }
+@@ -939,2 +942,3 @@ static bool set_type_state(struct policydb *db, const char *type_name, bool perm
+     if (type_name == NULL) {
++        bool success = true;
+         struct hashtab_node *node;
+@@ -943,5 +947,8 @@ static bool set_type_state(struct policydb *db, const char *type_name, bool perm
+             type = (struct type_datum *)(node->datum);
+-            if (ebitmap_set_bit(&db->permissive_map, type->value, permissive))
++            if (ebitmap_set_bit(&db->permissive_map, type->value, permissive)) {
+                 pr_info("Could not set bit in permissive map\n");
++                success = false;
++            }
+         };
++        return success;
+     } else {
+@@ -960,4 +967,5 @@ static bool set_type_state(struct policydb *db, const char *type_name, bool perm
+
+-static void add_typeattribute_raw(struct policydb *db, struct type_datum *type, struct type_datum *attr)
++static bool add_typeattribute_raw(struct policydb *db, struct type_datum *type, struct type_datum *attr)
+ {
++    bool success = true;
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 1, 0) || defined(KSU_TYPE_VAL_TO_STRUCT) ||                                \
+@@ -973,3 +981,4 @@ static void add_typeattribute_raw(struct policydb *db, struct type_datum *type,
+ #endif
+-    ebitmap_set_bit(sattr, attr->value - 1, 1);
++    if (ebitmap_set_bit(sattr, attr->value - 1, 1))
++        success = false;
+
+@@ -984,3 +993,4 @@ static void add_typeattribute_raw(struct policydb *db, struct type_datum *type,
+                 if (e->expr_type == CEXPR_NAMES && ebitmap_get_bit(&e->type_names->types, attr->value - 1)) {
+-                    ebitmap_set_bit(&e->names, type->value - 1, 1);
++                    if (ebitmap_set_bit(&e->names, type->value - 1, 1))
++                        success = false;
+                 }
+@@ -989,2 +999,4 @@ static void add_typeattribute_raw(struct policydb *db, struct type_datum *type,
+     };
++
++    return success;
+ }
+@@ -1011,4 +1023,3 @@ static bool add_typeattribute(struct policydb *db, const char *type, const char
+
+-    add_typeattribute_raw(db, type_d, attr_d);
+-    return true;
++    return add_typeattribute_raw(db, type_d, attr_d);
+ }
+diff --git a/kernel/sulog/event.c b/kernel/sulog/event.c
+index e45f01f..c9ba12f 100644
+--- a/kernel/sulog/event.c
++++ b/kernel/sulog/event.c
+@@ -144,3 +144,3 @@ static __u32 ksu_sulog_flatten_argv(struct user_arg_ptr *argv_user, char *dst, _
+         copied =
+-            strncpy_from_user_nofault(arg, (const void __user *)untagged_addr((unsigned long)arg_user), sizeof(arg));
++            ksu_strncpy_from_user_nofault(arg, (const void __user *)untagged_addr((unsigned long)arg_user), sizeof(arg));
+         if (copied <= 0)
+diff --git a/kernel/manager/apk_sign.c b/kernel/manager/apk_sign.c
+--- a/kernel/manager/apk_sign.c
++++ b/kernel/manager/apk_sign.c
+@@ -32,6 +32,7 @@ static struct apk_sign_key {
+     unsigned size;
+     const char *sha256;
+ } apk_sign_keys[] = {
+     { 0x35c, "947ae944f3de4ed4c21a7e4f7953ecf351bfa2b36239da37a34111ad29993eef" }, // SukiSU
++    { 0x377, "d3469712b6214462764a1d8d3e5cbe1d6819a0b629791b9f4101867821f1df64" }, // ReSukiSU
+     { 0x396, "f415f4ed9435427e1fdf7f1fccd4dbc07b3d6b8751e4dbcec6f19671f427870b" }, // RKSU
+     { 0x033b, "c371061b19d8c7d7d6133c6a9bafe198fa944e50c1b31c9d8daa8d7f1fc2d2d6" }, // KSU
+     { 0x381, "52d52d8c8bfbe53dc2b6ff1c613184e2c03013e090fe8905d8e3d5dc2658c2e4" }, // WKSU
