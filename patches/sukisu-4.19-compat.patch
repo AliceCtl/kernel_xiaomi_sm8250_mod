@@ -924,3 +924,286 @@ diff --git a/kernel/manager/apk_sign.c b/kernel/manager/apk_sign.c
      { 0x396, "f415f4ed9435427e1fdf7f1fccd4dbc07b3d6b8751e4dbcec6f19671f427870b" }, // RKSU
      { 0x033b, "c371061b19d8c7d7d6133c6a9bafe198fa944e50c1b31c9d8daa8d7f1fc2d2d6" }, // KSU
      { 0x381, "52d52d8c8bfbe53dc2b6ff1c613184e2c03013e090fe8905d8e3d5dc2658c2e4" }, // WKSU
+
+diff --git a/kernel/feature/sucompat.c b/kernel/feature/sucompat.c
+index f4083653..0f78998e 100644
+--- a/kernel/feature/sucompat.c
++++ b/kernel/feature/sucompat.c
+@@ -60 +60,4 @@ int ksu_handle_execveat_init(struct filename *filename, struct user_arg_ptr *arg
++    if (unlikely(!filename || IS_ERR(filename) || !filename->name))
++        return 0;
++
+     if (current->pid == 1)
+@@ -66,2 +69,5 @@ int ksu_handle_execveat_init(struct filename *filename, struct user_arg_ptr *arg
+     if (unlikely(!strcmp(filename->name, KSUD_PATH))) {
++        if (unlikely(!argv_user))
++            return 0;
++
+         const char __user *argv_user_ptr = get_user_arg_ptr(*argv_user, 0);
+@@ -85,4 +91,7 @@ int ksu_handle_execveat_init(struct filename *filename, struct user_arg_ptr *arg
+-    if (likely(!strstr(filename->name, "/app_process") && !strstr(filename->name, "/adbd"))) {
++    if (likely(!strstr(filename->name, "/app_process") &&
++               !strstr(filename->name, "/adbd") &&
++               !strstr(filename->name, "/stub_zygote"))) {
+         pr_info("susfs: mark no sucompat checks for pid: '%d', exec: '%s'\n", current->pid, filename->name);
+-        susfs_set_current_proc_umounted();
++        susfs_set_current_proc_no_su();
++        /* Init-spawned processes do not need the zygote mount view. */
+         return 0;
+@@ -91,2 +100,4 @@ int ksu_handle_execveat_init(struct filename *filename, struct user_arg_ptr *arg
+ #ifdef CONFIG_KSU_FEATURE_ADBROOT
++    if (unlikely(!envp_user))
++        return 0;
+ #ifdef CONFIG_COMPAT
+@@ -120,3 +131,3 @@ int ksu_handle_execveat_sucompat(int *fd, struct filename **filename_ptr,
+     filename = *filename_ptr;
+-    if (IS_ERR(filename))
++    if (unlikely(!filename || IS_ERR(filename) || !filename->name))
+         return 0;
+@@ -127,2 +138,3 @@ int ksu_handle_execveat_sucompat(int *fd, struct filename **filename_ptr,
+-    if (!(__ksu_is_allow_uid_for_current(current_uid().val)))
++    if (susfs_is_current_proc_no_su() ||
++        !ksu_is_allow_uid_for_current(current_uid().val))
+         return 0;
+@@ -149,5 +161,6 @@ int ksu_handle_execveat_sucompat(int *fd, struct filename **filename_ptr,
+-    const char __user *argv_user_ptr = get_user_arg_ptr(*((struct user_arg_ptr*)argv_user), 0);
+-    if (!argv_user_ptr || IS_ERR(argv_user_ptr)) {
+-        pr_err("!argv_user_ptr || IS_ERR(argv_user_ptr)\n");
+-        return 0;
++    if (argv_user) {
++        const char __user *argv_user_ptr =
++            get_user_arg_ptr(*((struct user_arg_ptr *)argv_user), 0);
++        if (!argv_user_ptr || IS_ERR(argv_user_ptr))
++            pr_err("!argv_user_ptr || IS_ERR(argv_user_ptr)\n");
+     }
+@@ -182 +195,8 @@ int ksu_handle_faccessat(int *dfd, const char __user **filename_user, int *mode,
++    if (unlikely(!filename_user || !*filename_user))
++        return 0;
++
++    if (susfs_is_current_proc_no_su() ||
++        !ksu_is_allow_uid_for_current(current_uid().val))
++        return 0;
++
+     strncpy_from_user(path, *filename_user, sizeof(path));
+@@ -216,4 +236,8 @@ int ksu_handle_stat(int *dfd, const char __user **filename_user, int *flags)
+ {
+-    if (unlikely(!filename_user))
++    if (unlikely(!filename_user || !*filename_user))
++        return 0;
++
++    if (susfs_is_current_proc_no_su() ||
++        !ksu_is_allow_uid_for_current(current_uid().val))
+         return 0;
+
+diff --git a/kernel/runtime/ksud.c b/kernel/runtime/ksud.c
+index eed56f90..20cdf144 100644
+--- a/kernel/runtime/ksud.c
++++ b/kernel/runtime/ksud.c
+@@ -204,3 +204,3 @@ int ksu_handle_execveat_ksud(int *fd, struct filename **filename_ptr,
+     filename = *filename_ptr;
+-    if (IS_ERR(filename)) {
++    if (unlikely(!filename || IS_ERR(filename) || !filename->name)) {
+         return 0;
+@@ -274,3 +274,3 @@ int ksu_handle_execveat_ksud(int *fd, struct filename **filename_ptr, struct use
+     filename = *filename_ptr;
+-    if (IS_ERR(filename)) {
++    if (unlikely(!filename || IS_ERR(filename) || !filename->name)) {
+         return 0;
+diff --git a/kernel/feature/sucompat.c b/kernel/feature/sucompat.c
+index 0f78998e..74524fff 100644
+--- a/kernel/feature/sucompat.c
++++ b/kernel/feature/sucompat.c
+@@ -69,6 +69,3 @@ int ksu_handle_execveat_init(struct filename *filename, struct user_arg_ptr *arg
+     if (unlikely(!strcmp(filename->name, KSUD_PATH))) {
+-        if (unlikely(!argv_user))
+-            return 0;
+-
+-        const char __user *argv_user_ptr = get_user_arg_ptr(*argv_user, 0);
++        const char __user *argv_user_ptr = NULL;
+         struct ksu_sulog_pending_event *pending_sucompat = NULL;
+@@ -76,3 +73,6 @@ int ksu_handle_execveat_init(struct filename *filename, struct user_arg_ptr *arg
+         pr_info("hook_manager: escape to root for init executing ksud: %d\n", current->pid);
+-        pending_sucompat = ksu_sulog_capture_sucompat(filename->name, argv_user, GFP_KERNEL);
++        if (argv_user && !IS_ERR(argv_user)) {
++            argv_user_ptr = get_user_arg_ptr(*argv_user, 0);
++            pending_sucompat = ksu_sulog_capture_sucompat(filename->name, argv_user, GFP_KERNEL);
++        }
+         escape_to_root_for_init();
+@@ -82,5 +82,5 @@ int ksu_handle_execveat_init(struct filename *filename, struct user_arg_ptr *arg
+         }
+-        if (!argv_user_ptr || IS_ERR(argv_user_ptr)) {
++        if (argv_user && !IS_ERR(argv_user) &&
++            (!argv_user_ptr || IS_ERR(argv_user_ptr))) {
+             pr_err("!argv_user_ptr || IS_ERR(argv_user_ptr)\n");
+-            return 0;
+         }
+@@ -100,3 +100,3 @@ int ksu_handle_execveat_init(struct filename *filename, struct user_arg_ptr *arg
+ #ifdef CONFIG_KSU_FEATURE_ADBROOT
+-    if (unlikely(!envp_user))
++    if (unlikely(!envp_user || IS_ERR(envp_user)))
+         return 0;
+@@ -127,3 +127,3 @@ int ksu_handle_execveat_sucompat(int *fd, struct filename **filename_ptr,
+
+-    if (unlikely(!filename_ptr))
++    if (unlikely(!filename_ptr || IS_ERR(filename_ptr)))
+         return 0;
+@@ -154,3 +154,6 @@ int ksu_handle_execveat_sucompat(int *fd, struct filename **filename_ptr,
+
+-    pending_sucompat = ksu_sulog_capture_sucompat(filename->name, (struct user_arg_ptr*)argv_user, GFP_KERNEL);
++    if (argv_user && !IS_ERR(argv_user))
++        pending_sucompat = ksu_sulog_capture_sucompat(filename->name,
++                                                       (struct user_arg_ptr *)argv_user,
++                                                       GFP_KERNEL);
+
+@@ -160,3 +163,3 @@ int ksu_handle_execveat_sucompat(int *fd, struct filename **filename_ptr,
+
+-    if (argv_user) {
++    if (argv_user && !IS_ERR(argv_user)) {
+         const char __user *argv_user_ptr =
+@@ -194,3 +197,4 @@ int ksu_handle_faccessat(int *dfd, const char __user **filename_user, int *mode,
+
+-    if (unlikely(!filename_user || !*filename_user))
++    if (unlikely(!filename_user || IS_ERR(filename_user) ||
++                 !*filename_user || IS_ERR(*filename_user)))
+         return 0;
+@@ -218,3 +222,8 @@ int ksu_handle_faccessat(int *dfd, const char __user **filename_user, int *mode,
+ int ksu_handle_stat(int *dfd, struct filename **filename, int *flags) {
+-    if (unlikely(IS_ERR(*filename) || (*filename)->name == NULL))
++    if (unlikely(!filename || IS_ERR(filename) || !*filename ||
++                 IS_ERR(*filename) || !(*filename)->name))
++        return 0;
++
++    if (susfs_is_current_proc_no_su() ||
++        !ksu_is_allow_uid_for_current(current_uid().val))
+         return 0;
+@@ -236,3 +245,4 @@ int ksu_handle_stat(int *dfd, const char __user **filename_user, int *flags)
+ {
+-    if (unlikely(!filename_user || !*filename_user))
++    if (unlikely(!filename_user || IS_ERR(filename_user) ||
++                 !*filename_user || IS_ERR(*filename_user)))
+         return 0;
+@@ -273,6 +283,6 @@ __attribute__((hot)) static __always_inline bool __is_su_allowed(const void **pt
+
+-    if (unlikely(!ptr_to_check))
++    if (unlikely(!ptr_to_check || IS_ERR(ptr_to_check)))
+         return false;
+
+-    if (unlikely(!*ptr_to_check))
++    if (unlikely(!*ptr_to_check || IS_ERR(*ptr_to_check)))
+         return false;
+@@ -287,2 +297,7 @@ static noinline int ksu_sucompat_user_common(const char __user **filename_user,
+     char path[sizeof(su_path)] = { 0 }; // sizeof includes nullterm already!
++
++    if (unlikely(!filename_user || IS_ERR(filename_user) ||
++                 !*filename_user || IS_ERR(*filename_user)))
++        return -EFAULT;
++
+     long len = ksu_strncpy_from_user_nofault(path, *filename_user, sizeof(path));
+@@ -347,4 +362,6 @@ int ksu_handle_execve_sucompat(int *fd, const char __user **filename_user, void
+
+-    pending_root_execve =
+-        ksu_sulog_capture_sucompat(*filename_user, *((struct user_arg_ptr *)argv), GFP_KERNEL);
++    if (argv && !IS_ERR(argv))
++        pending_root_execve =
++            ksu_sulog_capture_sucompat(*filename_user,
++                                        *((struct user_arg_ptr *)argv), GFP_KERNEL);
+
+@@ -359,4 +376,12 @@ int ksu_handle_execveat_sucompat(int *fd, struct filename **filename_ptr, void *
+     struct ksu_sulog_pending_event *pending_root_execve = NULL;
++    struct filename *filename;
+     int ret = 0;
+
++    if (unlikely(!filename_ptr || IS_ERR(filename_ptr)))
++        return 0;
++
++    filename = *filename_ptr;
++    if (unlikely(!filename || IS_ERR(filename) || !filename->name))
++        return 0;
++
+     if (!is_su_allowed(filename_ptr))
+@@ -364,7 +389,9 @@ int ksu_handle_execveat_sucompat(int *fd, struct filename **filename_ptr, void *
+
+-    if (likely(memcmp((void *)(*filename_ptr)->name, su_path, sizeof(su_path))))
++    if (likely(memcmp(filename->name, su_path, sizeof(su_path))))
+         return 0;
+
+-    pending_root_execve =
+-        ksu_sulog_capture_sucompat((*filename_ptr)->name, *((struct user_arg_ptr *)argv), GFP_KERNEL);
++    if (argv && !IS_ERR(argv))
++        pending_root_execve =
++            ksu_sulog_capture_sucompat(filename->name,
++                                        *((struct user_arg_ptr *)argv), GFP_KERNEL);
+
+@@ -382,3 +409,3 @@ int ksu_handle_execveat_sucompat(int *fd, struct filename **filename_ptr, void *
+     pr_info("do_execveat_common su->ksud!\n");
+-    memcpy((void *)(*filename_ptr)->name, ksud_path, sizeof(ksud_path));
++    memcpy((void *)filename->name, ksud_path, sizeof(ksud_path));
+     return 0;
+@@ -387,3 +414,3 @@ no_ksud:
+     pr_info("do_execveat_common su->sh!\n");
+-    memcpy((void *)(*filename_ptr)->name, sh_path, sizeof(sh_path));
++    memcpy((void *)filename->name, sh_path, sizeof(sh_path));
+     return 0;
+@@ -394,5 +421,11 @@ int ksu_handle_execveat(int *fd, struct filename **filename_ptr, void *argv, voi
+ {
++    if (unlikely(!filename_ptr || IS_ERR(filename_ptr) ||
++                 !*filename_ptr || IS_ERR(*filename_ptr) ||
++                 !(*filename_ptr)->name))
++        return 0;
++
+ #ifdef CONFIG_KSU_FEATURE_ADBROOT
+     int ret = 0;
+-    if (current_uid().val != 1 && is_init(get_current_cred())) {
++    if (current_uid().val != 1 && is_init(get_current_cred()) &&
++        envp && !IS_ERR(envp)) {
+         ret = ksu_adb_root_handle_execve_manual((*filename_ptr)->name, (struct user_arg_ptr *)envp);
+diff --git a/kernel/runtime/ksud.c b/kernel/runtime/ksud.c
+index fe86f2ae..ccbe2201 100644
+--- a/kernel/runtime/ksud.c
++++ b/kernel/runtime/ksud.c
+@@ -202,3 +202,3 @@ int ksu_handle_execveat_ksud(int *fd, struct filename **filename_ptr,
+
+-    if (!filename_ptr)
++    if (!filename_ptr || IS_ERR(filename_ptr))
+         return 0;
+@@ -216,3 +216,4 @@ int ksu_handle_execveat_ksud(int *fd, struct filename **filename_ptr,
+         // https://cs.android.com/android/platform/superproject/+/android-16.0.0_r2:system/core/init/main.cpp;l=77
+-        if (unlikely(!memcmp(filename->name, system_bin_init, sizeof(system_bin_init) - 1) && argv)) {
++        if (unlikely(!memcmp(filename->name, system_bin_init, sizeof(system_bin_init) - 1) &&
++                     argv && !IS_ERR(argv))) {
+             char buf[16];
+@@ -242,3 +243,4 @@ int ksu_handle_execveat_ksud(int *fd, struct filename **filename_ptr,
+ #endif
+-        if (unlikely(!memcmp(filename->name, app_process, sizeof(app_process) - 1) && argv)) {
++        if (unlikely(!memcmp(filename->name, app_process, sizeof(app_process) - 1) &&
++                     argv && !IS_ERR(argv))) {
+             char buf[16];
+@@ -276,3 +278,3 @@ int ksu_handle_execveat_ksud(int *fd, struct filename **filename_ptr, struct use
+
+-    if (!filename_ptr)
++    if (!filename_ptr || IS_ERR(filename_ptr))
+         return 0;
+@@ -292,3 +294,4 @@ int ksu_handle_execveat_ksud(int *fd, struct filename **filename_ptr, struct use
+     // https://cs.android.com/android/platform/superproject/+/android-16.0.0_r2:system/core/init/main.cpp;l=77
+-    if (unlikely(!memcmp(filename->name, system_bin_init, sizeof(system_bin_init) - 1) && argv)) {
++    if (unlikely(!memcmp(filename->name, system_bin_init, sizeof(system_bin_init) - 1) &&
++                 argv && !IS_ERR(argv))) {
+         char buf[16];
+@@ -306,3 +309,4 @@ int ksu_handle_execveat_ksud(int *fd, struct filename **filename_ptr, struct use
+         }
+-    } else if (unlikely(!memcmp(filename->name, old_system_init, sizeof(old_system_init) - 1) && argv)) {
++    } else if (unlikely(!memcmp(filename->name, old_system_init, sizeof(old_system_init) - 1) &&
++                        argv && !IS_ERR(argv))) {
+         char buf[16];
+@@ -315,3 +319,4 @@ int ksu_handle_execveat_ksud(int *fd, struct filename **filename_ptr, struct use
+             init_second_stage_executed = true;
+-        } else if (count(*argv, MAX_ARG_STRINGS) == 1 && !init_second_stage_executed && envp) {
++        } else if (argv && !IS_ERR(argv) && count(*argv, MAX_ARG_STRINGS) == 1 &&
++                   !init_second_stage_executed && envp && !IS_ERR(envp)) {
+             /* This applies to versions between Android 8 ~ 9  */
+@@ -353,3 +358,4 @@ int ksu_handle_execveat_ksud(int *fd, struct filename **filename_ptr, struct use
+
+-    if (unlikely(first_zygote && !memcmp(filename->name, app_process, sizeof(app_process) - 1) && argv)) {
++    if (unlikely(first_zygote && !memcmp(filename->name, app_process, sizeof(app_process) - 1) &&
++                 argv && !IS_ERR(argv))) {
+         char buf[16];
